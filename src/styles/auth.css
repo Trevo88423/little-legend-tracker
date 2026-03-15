@@ -133,6 +133,54 @@
   text-decoration: underline;
 }
 
+.auth-check-email-body {
+  text-align: left;
+  margin-top: 8px;
+}
+
+.auth-check-email-body p {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  margin-bottom: 12px;
+}
+
+.auth-check-email-tip {
+  font-size: 0.82rem !important;
+  color: var(--color-text-muted) !important;
+  font-style: italic;
+}
+
+.auth-submit-btn {
+  width: 100%;
+  padding: 14px;
+  background: var(--gradient-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.auth-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(232,108,80,0.3);
+}
+
+.auth-success-msg {
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  text-align: center;
+}
+
 .auth-error-msg {
   color: var(--color-red);
   font-size: 0.82rem;

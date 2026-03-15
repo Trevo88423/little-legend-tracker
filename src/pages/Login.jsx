@@ -1,16 +1,28 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import '../styles/auth.css'
 
 export default function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { signIn } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+
+  useEffect(() => {
+    // Supabase redirects here after email confirmation with hash params
+    const hash = window.location.hash
+    if (hash && (hash.includes('type=signup') || hash.includes('type=email'))) {
+      setConfirmed(true)
+      // Clean the URL hash
+      window.history.replaceState(null, '', '/login')
+    }
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -34,6 +46,10 @@ export default function Login() {
         <span className="auth-icon">&#127775;</span>
         <h1>Welcome Back</h1>
         <p className="auth-subtitle">Sign in to Little Legend Tracker</p>
+
+        {confirmed && (
+          <p className="auth-success-msg">Email confirmed! You can now sign in.</p>
+        )}
 
         <form className="ll-auth-form" onSubmit={handleSubmit}>
           <div className="form-group">

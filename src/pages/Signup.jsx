@@ -52,8 +52,8 @@ export default function Signup() {
       })
       if (rpcError) throw rpcError
 
-      // 3. Navigate to the app
-      navigate('/app')
+      // 3. Navigate to check email page
+      navigate('/check-email', { state: { email: email.trim() } })
     } catch (err) {
       setError(err.message || 'Signup failed')
     } finally {
