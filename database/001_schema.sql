@@ -1,6 +1,10 @@
 -- Little Legend Tracker - Database Schema
 -- Multi-tenant schema with family_id + child_id isolation
 
+-- ==================== EXTENSIONS ====================
+-- pgcrypto provides crypt() and gen_salt() used for PIN hashing
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- ==================== CORE IDENTITY TABLES ====================
 
 CREATE TABLE families (
@@ -175,16 +179,22 @@ RETURNS BOOLEAN AS $$
   );
 $$ LANGUAGE sql SECURITY DEFINER;
 
--- Families: authenticated users can create, members can read
+-- Families: authenticated users can create, members can read/update
 CREATE POLICY "Users can create families" ON families FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "Family members can read their family" ON families FOR SELECT TO authenticated
   USING (user_belongs_to_family(id));
+CREATE POLICY "Family members can update their family" ON families FOR UPDATE TO authenticated
+  USING (user_belongs_to_family(id));
 
--- Family members: members can read their family's members
+-- Family members: members can read their family's members, manage own membership
 CREATE POLICY "Members can read family members" ON family_members FOR SELECT TO authenticated
   USING (user_belongs_to_family(family_id));
 CREATE POLICY "Authenticated users can join families" ON family_members FOR INSERT TO authenticated
   WITH CHECK (user_id = auth.uid());
+CREATE POLICY "Members can update own membership" ON family_members FOR UPDATE TO authenticated
+  USING (user_id = auth.uid());
+CREATE POLICY "Members can leave family" ON family_members FOR DELETE TO authenticated
+  USING (user_id = auth.uid());
 
 -- Children: family members have full access
 CREATE POLICY "Family members can read children" ON children FOR SELECT TO authenticated
@@ -192,6 +202,8 @@ CREATE POLICY "Family members can read children" ON children FOR SELECT TO authe
 CREATE POLICY "Family members can insert children" ON children FOR INSERT TO authenticated
   WITH CHECK (user_belongs_to_family(family_id));
 CREATE POLICY "Family members can update children" ON children FOR UPDATE TO authenticated
+  USING (user_belongs_to_family(family_id));
+CREATE POLICY "Family members can delete children" ON children FOR DELETE TO authenticated
   USING (user_belongs_to_family(family_id));
 
 -- Data tables: family members have full CRUD
@@ -210,6 +222,7 @@ CREATE POLICY "med_logs_delete" ON med_logs FOR DELETE TO authenticated USING (u
 -- Feeds
 CREATE POLICY "feeds_select" ON feeds FOR SELECT TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "feeds_insert" ON feeds FOR INSERT TO authenticated WITH CHECK (user_belongs_to_family(family_id));
+CREATE POLICY "feeds_update" ON feeds FOR UPDATE TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "feeds_delete" ON feeds FOR DELETE TO authenticated USING (user_belongs_to_family(family_id));
 
 -- Weights
@@ -221,16 +234,19 @@ CREATE POLICY "weights_delete" ON weights FOR DELETE TO authenticated USING (use
 -- Notes
 CREATE POLICY "notes_select" ON notes FOR SELECT TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "notes_insert" ON notes FOR INSERT TO authenticated WITH CHECK (user_belongs_to_family(family_id));
+CREATE POLICY "notes_update" ON notes FOR UPDATE TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "notes_delete" ON notes FOR DELETE TO authenticated USING (user_belongs_to_family(family_id));
 
 -- Trackers
 CREATE POLICY "trackers_select" ON trackers FOR SELECT TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "trackers_insert" ON trackers FOR INSERT TO authenticated WITH CHECK (user_belongs_to_family(family_id));
+CREATE POLICY "trackers_update" ON trackers FOR UPDATE TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "trackers_delete" ON trackers FOR DELETE TO authenticated USING (user_belongs_to_family(family_id));
 
 -- Tracker logs
 CREATE POLICY "tracker_logs_select" ON tracker_logs FOR SELECT TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "tracker_logs_insert" ON tracker_logs FOR INSERT TO authenticated WITH CHECK (user_belongs_to_family(family_id));
+CREATE POLICY "tracker_logs_update" ON tracker_logs FOR UPDATE TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "tracker_logs_delete" ON tracker_logs FOR DELETE TO authenticated USING (user_belongs_to_family(family_id));
 
 -- Settings
@@ -241,6 +257,17 @@ CREATE POLICY "settings_update" ON settings FOR UPDATE TO authenticated USING (u
 -- Activity log
 CREATE POLICY "activity_select" ON activity_log FOR SELECT TO authenticated USING (user_belongs_to_family(family_id));
 CREATE POLICY "activity_insert" ON activity_log FOR INSERT TO authenticated WITH CHECK (user_belongs_to_family(family_id));
+
+-- ==================== PIN RATE LIMITING ====================
+
+-- Track PIN verification attempts per user (max 5 per 15 minutes)
+CREATE TABLE pin_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  attempted_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_pin_attempts_user_time ON pin_attempts(user_id, attempted_at DESC);
 
 -- ==================== PIN FUNCTIONS ====================
 
@@ -257,10 +284,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Verify a family PIN (called from join)
+-- Verify a family PIN with rate limiting (called from join)
 CREATE OR REPLACE FUNCTION verify_family_pin(pin_input TEXT)
 RETURNS TABLE(family_id UUID, family_name TEXT) AS $$
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_recent_attempts INT;
 BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  -- Count attempts in the last 15 minutes
+  SELECT COUNT(*) INTO v_recent_attempts
+  FROM pin_attempts
+  WHERE user_id = v_user_id AND attempted_at > now() - interval '15 minutes';
+
+  IF v_recent_attempts >= 5 THEN
+    RAISE EXCEPTION 'Too many PIN attempts. Please wait 15 minutes before trying again.';
+  END IF;
+
+  -- Log this attempt
+  INSERT INTO pin_attempts (user_id) VALUES (v_user_id);
+
+  -- Clean up old attempts (older than 1 hour)
+  DELETE FROM pin_attempts WHERE attempted_at < now() - interval '1 hour';
+
   RETURN QUERY
   SELECT f.id, f.name
   FROM families f
@@ -270,7 +319,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Complete signup: creates family, member, child, and settings in one transaction
 CREATE OR REPLACE FUNCTION complete_signup(
-  p_user_id UUID,
   p_family_name TEXT,
   p_pin_input TEXT,
   p_display_name TEXT,
@@ -279,14 +327,19 @@ CREATE OR REPLACE FUNCTION complete_signup(
 )
 RETURNS JSON AS $$
 DECLARE
+  v_user_id UUID := auth.uid();
   v_family_id UUID := gen_random_uuid();
   v_child_id UUID := gen_random_uuid();
 BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
   INSERT INTO families (id, name, pin_hash)
   VALUES (v_family_id, p_family_name, crypt(p_pin_input, gen_salt('bf')));
 
   INSERT INTO family_members (family_id, user_id, display_name, role)
-  VALUES (v_family_id, p_user_id, p_display_name, 'owner');
+  VALUES (v_family_id, v_user_id, p_display_name, 'owner');
 
   INSERT INTO children (id, family_id, name, date_of_birth)
   VALUES (v_child_id, v_family_id, p_child_name, p_child_dob);
@@ -300,15 +353,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Complete join family: verifies PIN and adds member in one transaction
 CREATE OR REPLACE FUNCTION complete_join_family(
-  p_user_id UUID,
   p_family_id UUID,
   p_display_name TEXT,
   p_pin_input TEXT
 )
 RETURNS JSON AS $$
 DECLARE
+  v_user_id UUID := auth.uid();
   v_family_exists BOOLEAN;
 BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
   SELECT EXISTS (
     SELECT 1 FROM families
     WHERE id = p_family_id AND pin_hash = crypt(p_pin_input, pin_hash)
@@ -319,7 +376,7 @@ BEGIN
   END IF;
 
   INSERT INTO family_members (family_id, user_id, display_name, role)
-  VALUES (p_family_id, p_user_id, p_display_name, 'parent');
+  VALUES (p_family_id, v_user_id, p_display_name, 'parent');
 
   RETURN json_build_object('success', true);
 END;
@@ -355,6 +412,3 @@ ALTER PUBLICATION supabase_realtime ADD TABLE tracker_logs;
 ALTER PUBLICATION supabase_realtime ADD TABLE activity_log;
 ALTER PUBLICATION supabase_realtime ADD TABLE medications;
 ALTER PUBLICATION supabase_realtime ADD TABLE settings;
-
--- ==================== ENABLE pgcrypto ====================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;

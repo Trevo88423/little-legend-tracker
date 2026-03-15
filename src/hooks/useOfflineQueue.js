@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 
+// NOTE: Offline queue stores operations in IndexedDB without encryption.
+// On shared devices, other browser profiles could inspect this data.
+// Acceptable for family-use app; consider Web Crypto API if compliance requires it.
 const DB_NAME = 'little-legend-offline'
 const STORE_NAME = 'queue'
 

@@ -20,7 +20,6 @@ export default function JoinFamily() {
   const [matchedFamilies, setMatchedFamilies] = useState([])
   const [selectedFamilyId, setSelectedFamilyId] = useState('')
   const [showPicker, setShowPicker] = useState(false)
-  const [pendingUser, setPendingUser] = useState(null)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -50,27 +49,25 @@ export default function JoinFamily() {
       // 3. If multiple families match, show picker
       if (families.length > 1) {
         setMatchedFamilies(families)
-        setPendingUser(user)
         setShowPicker(true)
         setLoading(false)
         return
       }
 
       // 4. Single match - join directly
-      await joinFamily(user, families[0].id)
+      await joinFamily(families[0].id)
     } catch (err) {
       setError(err.message || 'Failed to join family')
       setLoading(false)
     }
   }
 
-  async function joinFamily(user, familyId) {
+  async function joinFamily(familyId) {
     setLoading(true)
     setError('')
 
     try {
       const { error: joinError } = await supabase.rpc('complete_join_family', {
-        p_user_id: user.id,
         p_family_id: familyId,
         p_display_name: displayName.trim(),
         p_pin_input: familyPin,
@@ -90,7 +87,7 @@ export default function JoinFamily() {
       setError('Please select a family')
       return
     }
-    await joinFamily(pendingUser, selectedFamilyId)
+    await joinFamily(selectedFamilyId)
   }
 
   return (

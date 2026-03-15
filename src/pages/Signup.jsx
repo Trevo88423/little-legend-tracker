@@ -41,9 +41,8 @@ export default function Signup() {
       const { user } = await signUp(email.trim(), password)
       if (!user) throw new Error('Signup failed - no user returned')
 
-      // 2. Complete signup via SECURITY DEFINER RPC (bypasses RLS)
+      // 2. Complete signup via SECURITY DEFINER RPC (uses auth.uid() server-side)
       const { data, error: rpcError } = await supabase.rpc('complete_signup', {
-        p_user_id: user.id,
         p_family_name: `${displayName.trim()}'s Family`,
         p_pin_input: familyPin,
         p_display_name: displayName.trim(),
