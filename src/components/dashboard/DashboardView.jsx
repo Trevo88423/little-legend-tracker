@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTracker } from '../../contexts/TrackerContext'
 import { today, formatTime12, formatDate } from '../../lib/dateUtils'
 import { catIcons, dotColors, activityIcons } from '../../lib/constants'
@@ -8,6 +9,11 @@ export default function DashboardView() {
     isMedGiven, getTimeSlots
   } = useTracker()
 
+  const [notifDismissed, setNotifDismissed] = useState(() => localStorage.getItem('ll-notif-dismissed') === '1')
+  const [notifPermission, setNotifPermission] = useState(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+  )
+
   const { nextMed, nextTime } = getNextMed()
   const medStats = getMedStats()
   const todayFeeds = getTodayFeeds()
@@ -15,8 +21,7 @@ export default function DashboardView() {
   const totalMl = todayFeeds.reduce((sum, f) => sum + f.amount, 0)
   const timeSlots = getTimeSlots()
 
-  const notificationsGranted = typeof Notification !== 'undefined' && Notification.permission === 'granted'
-  const showNotifBanner = !notificationsGranted && data.settings.medAlarms
+  const showNotifBanner = notifPermission !== 'granted' && !notifDismissed && data.settings.medAlarms
 
   const recentActivity = data.activityLog.slice(0, 5)
 
@@ -32,20 +37,40 @@ export default function DashboardView() {
     return { time, names, allGiven }
   })
 
-  function requestNotifications() {
-    if (typeof Notification !== 'undefined') {
-      Notification.requestPermission()
+  async function requestNotifications() {
+    if (typeof Notification === 'undefined') {
+      dismissBanner()
+      return
     }
+    const result = await Notification.requestPermission()
+    setNotifPermission(result)
+    if (result !== 'granted') {
+      dismissBanner()
+    }
+  }
+
+  function dismissBanner() {
+    setNotifDismissed(true)
+    localStorage.setItem('ll-notif-dismissed', '1')
   }
 
   return (
     <div>
       {showNotifBanner && (
-        <div className="t-notif-banner" onClick={requestNotifications} style={{ cursor: 'pointer' }}>
+        <div className="t-notif-banner" onClick={requestNotifications} style={{ cursor: 'pointer', position: 'relative' }}>
           <span className="t-notif-icon">🔔</span>
           <span className="t-notif-text">
             Enable notifications to receive medication reminders. Tap here to allow.
           </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); dismissBanner() }}
+            style={{
+              position: 'absolute', top: 6, right: 8,
+              background: 'none', border: 'none', color: 'inherit',
+              fontSize: '1.1rem', cursor: 'pointer', opacity: 0.7, padding: '2px 6px',
+            }}
+            aria-label="Dismiss"
+          >✕</button>
         </div>
       )}
 
