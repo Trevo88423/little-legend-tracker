@@ -47,16 +47,18 @@ export default function ReportsView() {
       data,
     }
 
+    const childName = activeChild?.name || 'Child'
+
     try {
       switch (type) {
         case 'medSchedule':
-          await generateMedSchedule(context)
+          await generateMedSchedule(data.medications || [], childName)
           break
         case 'dailySummary':
-          await generateDailySummary(context)
+          await generateDailySummary(data, childName)
           break
         case 'weeklyReport':
-          await generateWeeklyReport(context)
+          await generateWeeklyReport(data, childName)
           break
         default:
           break

@@ -97,12 +97,12 @@ export function generateMedSchedule(medications, childName) {
 
       doc.setTextColor(...COLORS.text)
       doc.setFont('helvetica', 'bold')
-      doc.text(formatTime12(time), 24, y)
+      doc.text(formatTime12(time) || '', 24, y)
       doc.setFont('helvetica', 'normal')
-      doc.text(med.name, 48, y)
-      doc.text(med.dose, 110, y)
+      doc.text(med.name || '', 48, y)
+      doc.text(med.dose || '', 110, y)
       doc.setTextColor(...catColor)
-      doc.text(med.category, 142, y)
+      doc.text(med.category || '', 142, y)
       doc.setTextColor(...COLORS.muted)
       doc.text((med.instructions || '').substring(0, 20), 170, y)
       y += 8
@@ -168,10 +168,10 @@ export function generateDailySummary(data, childName, date) {
 
       doc.setTextColor(...COLORS.text)
       doc.setFontSize(9)
-      doc.text(`${formatTime12(time)} - ${med.name} ${med.dose}`, 24, y)
+      doc.text(`${formatTime12(time) || ''} - ${med.name || ''} ${med.dose || ''}`, 24, y)
       if (given) {
         doc.setTextColor(...COLORS.green)
-        doc.text(`Given at ${formatTime12(given.givenAt)}${given.givenBy ? ' by ' + given.givenBy : ''}`, 120, y)
+        doc.text(`Given at ${formatTime12(given.givenAt) || ''}${given.givenBy ? ' by ' + given.givenBy : ''}`, 120, y)
       } else {
         doc.setTextColor(...COLORS.red)
         doc.text('Not given', 120, y)
