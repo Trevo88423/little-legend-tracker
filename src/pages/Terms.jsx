@@ -116,7 +116,7 @@ export default function Terms() {
           <h2>Contact</h2>
           <p>
             For questions about these terms, contact us at:{' '}
-            <a href="mailto:hello@littlelegendtracker.com">hello@littlelegendtracker.com</a>
+            <a href="mailto:hello@littlelegend.care">hello@littlelegend.care</a>
           </p>
         </section>
       </div>

@@ -107,7 +107,7 @@ export default function Privacy() {
           <h2>Contact</h2>
           <p>
             For privacy questions, data deletion requests, or concerns, contact us at:{' '}
-            <a href="mailto:privacy@littlelegendtracker.com">privacy@littlelegendtracker.com</a>
+            <a href="mailto:privacy@littlelegend.care">privacy@littlelegend.care</a>
           </p>
         </section>
       </div>
