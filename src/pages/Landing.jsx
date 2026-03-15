@@ -89,7 +89,7 @@ export default function Landing() {
                 <h3>Real-Time Multi-Parent Sync</h3>
                 <p>
                   Both parents see live updates instantly. No more texting
-                  "did you give the Aspirin?" — just check the app.
+                  "did you give the aspirin?" — just check the app.
                 </p>
               </div>
             </div>
