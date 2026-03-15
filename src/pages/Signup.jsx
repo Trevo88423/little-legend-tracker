@@ -17,6 +17,7 @@ export default function Signup() {
   const [childName, setChildName] = useState('')
   const [childDob, setChildDob] = useState('')
   const [familyPin, setFamilyPin] = useState('')
+  const [agreed, setAgreed] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -63,6 +64,7 @@ export default function Signup() {
   return (
     <div className="ll-auth-screen">
       <div className="ll-auth-card">
+        <Link to="/" className="auth-back-link">&larr; Back to home</Link>
         <span className="auth-icon">&#128118;</span>
         <h1>Create Account</h1>
         <p className="auth-subtitle">Start tracking your little legend</p>
@@ -144,10 +146,25 @@ export default function Signup() {
             />
           </div>
 
+          <label className="auth-consent">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              required
+            />
+            <span>
+              I agree to the{' '}
+              <Link to="/terms" target="_blank">Terms of Service</Link>
+              {' '}and{' '}
+              <Link to="/privacy" target="_blank">Privacy Policy</Link>
+            </span>
+          </label>
+
           <button
             type="submit"
             className="auth-submit-btn"
-            disabled={loading}
+            disabled={loading || !agreed}
           >
             {loading ? 'Creating account...' : 'Create Account'}
           </button>

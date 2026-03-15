@@ -344,6 +344,10 @@ export default function Landing() {
           <p>Little Legend Tracker — Built with love by Matteo's family</p>
           <p style={{ marginTop: '8px' }}>
             <Link to="/login">Family Login</Link>
+            {' · '}
+            <Link to="/privacy">Privacy Policy</Link>
+            {' · '}
+            <Link to="/terms">Terms of Service</Link>
           </p>
         </div>
 

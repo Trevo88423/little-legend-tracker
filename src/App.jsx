@@ -6,6 +6,8 @@ import Signup from './pages/Signup'
 import JoinFamily from './pages/JoinFamily'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import Privacy from './pages/Privacy'
+import Terms from './pages/Terms'
 import TrackerApp from './pages/TrackerApp'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import DashboardView from './components/dashboard/DashboardView'
@@ -31,6 +33,8 @@ export default function App() {
           <Route path="/join" element={<JoinFamily />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
 
           {/* Protected app routes */}
           <Route element={<ProtectedRoute />}>

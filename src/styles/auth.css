@@ -18,6 +18,19 @@
   box-shadow: 0 8px 32px rgba(0,0,0,0.15);
 }
 
+.auth-back-link {
+  display: block;
+  text-align: left;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  margin-bottom: 12px;
+}
+
+.auth-back-link:hover {
+  color: var(--color-primary);
+}
+
 .ll-auth-card .auth-icon {
   font-size: 3rem;
   margin-bottom: 12px;
@@ -96,6 +109,28 @@
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+}
+
+.auth-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.auth-consent input[type="checkbox"] {
+  margin-top: 3px;
+  width: auto;
+  cursor: pointer;
+}
+
+.auth-consent a {
+  color: var(--color-primary);
+  text-decoration: underline;
 }
 
 .auth-error-msg {

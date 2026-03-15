@@ -96,6 +96,7 @@ export default function JoinFamily() {
   return (
     <div className="ll-auth-screen">
       <div className="ll-auth-card">
+        <Link to="/" className="auth-back-link">&larr; Back to home</Link>
         <span className="auth-icon">&#128106;</span>
         <h1>Join Family</h1>
         <p className="auth-subtitle">Connect with your partner's account</p>

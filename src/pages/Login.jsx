@@ -30,6 +30,7 @@ export default function Login() {
   return (
     <div className="ll-auth-screen">
       <div className="ll-auth-card">
+        <Link to="/" className="auth-back-link">&larr; Back to home</Link>
         <span className="auth-icon">&#127775;</span>
         <h1>Welcome Back</h1>
         <p className="auth-subtitle">Sign in to Little Legend Tracker</p>
