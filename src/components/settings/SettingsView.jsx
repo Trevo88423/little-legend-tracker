@@ -91,7 +91,7 @@ export default function SettingsView() {
           <div>
             <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Medication Reminders</div>
             <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-              Get notified before each medication dose
+              Get notified 5 min before, at dose time, and if overdue
             </div>
           </div>
           <div
@@ -102,20 +102,29 @@ export default function SettingsView() {
           </div>
         </div>
 
-        <div className="t-toggle-row">
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Feed Reminders</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-              Reminders for scheduled feeds
-            </div>
-          </div>
-          <div
-            className={`t-toggle ${settings.feedAlarms ? 'on' : ''}`}
-            onClick={() => toggleSetting('feedAlarms')}
+        {settings.medAlarms && (
+          <button
+            className="t-btn t-btn-secondary t-btn-small"
+            style={{ marginBottom: 12 }}
+            onClick={async () => {
+              if (typeof Notification === 'undefined') {
+                alert('Notifications are not supported in this browser')
+                return
+              }
+              const perm = await Notification.requestPermission()
+              if (perm === 'granted') {
+                new Notification('💊 Test Notification', {
+                  body: 'Medication reminders are working!',
+                  tag: 'test',
+                })
+              } else {
+                alert('Notification permission was denied. Check your browser settings.')
+              }
+            }}
           >
-            <div className="t-toggle-knob" />
-          </div>
-        </div>
+            🔔 Test Notification
+          </button>
+        )}
 
         <div className="t-toggle-row">
           <div>

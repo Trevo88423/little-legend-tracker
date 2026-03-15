@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useFamily } from '../contexts/FamilyContext'
 import { useTracker } from '../contexts/TrackerContext'
 import { useAuth } from '../contexts/AuthContext'
+import { useNotifications } from '../hooks/useNotifications'
 import '../styles/tracker.css'
 
 const tabs = [
@@ -21,6 +22,7 @@ export default function TrackerApp() {
   const { signOut } = useAuth()
   const { activeChild, loading: familyLoading, currentMember } = useFamily()
   const { loading: trackerLoading, loggerName, getLatestWeight } = useTracker()
+  useNotifications()
 
   if (familyLoading || trackerLoading) {
     return (
