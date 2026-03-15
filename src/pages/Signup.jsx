@@ -1,0 +1,164 @@
+import { useState } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
+import { genId } from '../lib/idUtils'
+import '../styles/auth.css'
+
+// PIN hashing is done server-side via create_family_with_pin RPC
+
+export default function Signup() {
+  const navigate = useNavigate()
+  const { signUp } = useAuth()
+
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [childName, setChildName] = useState('')
+  const [childDob, setChildDob] = useState('')
+  const [familyPin, setFamilyPin] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  function validatePin(pin) {
+    return /^\d{6,8}$/.test(pin)
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
+
+    if (!validatePin(familyPin)) {
+      setError('Family PIN must be 6-8 digits')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      // 1. Sign up the user
+      const { user } = await signUp(email.trim(), password)
+      if (!user) throw new Error('Signup failed - no user returned')
+
+      // 2. Complete signup via SECURITY DEFINER RPC (bypasses RLS)
+      const { data, error: rpcError } = await supabase.rpc('complete_signup', {
+        p_user_id: user.id,
+        p_family_name: `${displayName.trim()}'s Family`,
+        p_pin_input: familyPin,
+        p_display_name: displayName.trim(),
+        p_child_name: childName.trim(),
+        p_child_dob: childDob || null,
+      })
+      if (rpcError) throw rpcError
+
+      // 3. Navigate to the app
+      navigate('/app')
+    } catch (err) {
+      setError(err.message || 'Signup failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="ll-auth-screen">
+      <div className="ll-auth-card">
+        <span className="auth-icon">&#128118;</span>
+        <h1>Create Account</h1>
+        <p className="auth-subtitle">Start tracking your little legend</p>
+
+        <form className="ll-auth-form" onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              required
+              autoComplete="email"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Choose a strong password"
+              required
+              minLength={6}
+              autoComplete="new-password"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="displayName">Your Display Name</label>
+            <input
+              id="displayName"
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="e.g. Mum, Dad, Sarah"
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="childName">Child's Name</label>
+            <input
+              id="childName"
+              type="text"
+              value={childName}
+              onChange={(e) => setChildName(e.target.value)}
+              placeholder="Your little legend's name"
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="childDob">Date of Birth (optional)</label>
+            <input
+              id="childDob"
+              type="date"
+              value={childDob}
+              onChange={(e) => setChildDob(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="familyPin">Family PIN (6-8 digits)</label>
+            <input
+              id="familyPin"
+              type="text"
+              inputMode="numeric"
+              pattern="\d{6,8}"
+              value={familyPin}
+              onChange={(e) => setFamilyPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+              placeholder="Used by partner to join"
+              required
+              maxLength={8}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="auth-submit-btn"
+            disabled={loading}
+          >
+            {loading ? 'Creating account...' : 'Create Account'}
+          </button>
+
+          {error && <p className="auth-error-msg">{error}</p>}
+        </form>
+
+        <Link to="/login" className="auth-link">
+          Already have an account? <span className="auth-link-primary">Sign in</span>
+        </Link>
+      </div>
+    </div>
+  )
+}

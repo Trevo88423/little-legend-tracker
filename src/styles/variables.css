@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+
+:root {
+  --font-family: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+  --color-primary: #e86c50;
+  --color-primary-dark: #d45a40;
+  --color-primary-light: #fff0ec;
+  --color-secondary: #d4556a;
+  --color-purple: #8b6cc1;
+  --color-purple-light: #f3effa;
+  --color-green: #34a66c;
+  --color-green-light: #edf8f1;
+  --color-blue: #4a8fd4;
+  --color-blue-light: #edf4fc;
+  --color-amber: #d4930a;
+  --color-amber-light: #fef8e8;
+  --color-red: #d94452;
+  --color-red-light: #fdedef;
+  --color-bg: #faf8f5;
+  --color-text: #2c2420;
+  --color-text-secondary: #6b5e54;
+  --color-text-muted: #a89888;
+  --color-border: #ece8e1;
+  --color-card: #ffffff;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 25px;
+  --shadow-sm: 0 1px 3px rgba(44,36,32,0.06), 0 4px 12px rgba(44,36,32,0.04);
+  --shadow-md: 0 4px 16px rgba(44,36,32,0.08), 0 8px 32px rgba(44,36,32,0.04);
+  --gradient-primary: linear-gradient(135deg, #e86c50 0%, #d4556a 100%);
+  --gradient-hero: linear-gradient(135deg, #e86c50 0%, #d4556a 50%, #8b6cc1 100%);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
