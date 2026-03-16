@@ -243,6 +243,50 @@ export default function SettingsView() {
         )}
       </div>
 
+      {/* Request Features */}
+      <div className="t-card">
+        <div className="t-card-title">Feedback</div>
+        <a
+          href="https://github.com/Trevo88423/little-legend-tracker/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="t-btn t-btn-secondary"
+          style={{ width: '100%', textDecoration: 'none' }}
+        >
+          Request a Feature or Report a Bug
+        </a>
+      </div>
+
+      {/* Pay It Forward */}
+      <div className="t-card">
+        <div className="t-card-title">Pay It Forward</div>
+        <p style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>
+          If Little Legend has made your days a little easier, we&apos;d love you to pay it forward.
+          We don&apos;t charge for this app and never will &mdash; but if you&apos;d like to give back,
+          please consider donating to the charities that supported our family:
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <a
+            href="https://www.cckin.com.au/donate"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="t-btn t-btn-primary"
+            style={{ textDecoration: 'none' }}
+          >
+            Central Coast Kids in Need
+          </a>
+          <a
+            href="https://rmhc.org.au"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="t-btn t-btn-primary"
+            style={{ textDecoration: 'none', background: 'var(--color-red)' }}
+          >
+            Ronald McDonald House Charities
+          </a>
+        </div>
+      </div>
+
       {/* Medication Form Modal */}
       {showMedModal && (
         <div className="t-modal-overlay" onClick={() => setShowMedModal(false)}>
