@@ -127,10 +127,20 @@ export default function SettingsView() {
                 }
                 const perm = await Notification.requestPermission()
                 if (perm === 'granted') {
-                  new Notification('💊 Test Notification', {
-                    body: 'Medication reminders are working!',
-                    tag: 'test',
-                  })
+                  if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+                    const reg = await navigator.serviceWorker.ready
+                    reg.showNotification('💊 Test Notification', {
+                      body: 'Medication reminders are working!',
+                      tag: 'test',
+                      icon: '/icons/icon-192.png',
+                      badge: '/icons/icon-192.png',
+                    })
+                  } else {
+                    new Notification('💊 Test Notification', {
+                      body: 'Medication reminders are working!',
+                      tag: 'test',
+                    })
+                  }
                 } else {
                   alert('Notification permission was denied. Check your browser settings.')
                 }
