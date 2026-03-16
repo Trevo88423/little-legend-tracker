@@ -136,9 +136,7 @@ export default function JoinFamily() {
         <span className="auth-icon">&#128106;</span>
         <h1>Join Family</h1>
         <p className="auth-subtitle">
-          {user
-            ? 'Enter your family details to join'
-            : 'Connect with your partner\'s account'}
+          Join your partner's tracker with the child's name and PIN
         </p>
 
         {!showEmailStep ? (
