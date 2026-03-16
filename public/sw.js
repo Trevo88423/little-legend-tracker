@@ -61,3 +61,69 @@ self.addEventListener('fetch', event => {
     return
   }
 })
+
+// Push: receive server-sent push notification and display it
+self.addEventListener('push', event => {
+  if (!event.data) return
+
+  let payload
+  try {
+    payload = event.data.json()
+  } catch (e) {
+    payload = { title: 'Little Legend', body: event.data.text() }
+  }
+
+  const { title, body, tag, data } = payload
+
+  event.waitUntil(
+    self.registration.showNotification(title || 'Little Legend', {
+      body: body || '',
+      tag: tag || 'med-notification',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      requireInteraction: true,
+      actions: [
+        { action: 'open', title: 'Open' },
+        { action: 'dismiss', title: 'Dismiss' }
+      ],
+      data: data || {}
+    })
+  )
+})
+
+// Notification click: open or focus the app
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+
+  if (event.action === 'dismiss') return
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      // Focus existing app window if found
+      for (const client of clients) {
+        if (client.url.includes('/app/') && 'focus' in client) {
+          return client.focus()
+        }
+      }
+      // Otherwise open the meds page
+      return self.clients.openWindow('/app/meds')
+    })
+  )
+})
+
+// Subscription change: re-subscribe and notify client
+self.addEventListener('pushsubscriptionchange', event => {
+  event.waitUntil(
+    self.registration.pushManager.subscribe(event.oldSubscription.options).then(newSub => {
+      // Notify all clients so they can sync the new subscription to the DB
+      return self.clients.matchAll().then(clients => {
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'PUSH_SUBSCRIPTION_CHANGED',
+            subscription: newSub.toJSON()
+          })
+        })
+      })
+    })
+  )
+})

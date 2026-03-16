@@ -428,8 +428,36 @@ export function TrackerProvider({ children }) {
   )
 }
 
+const EMPTY_TRACKER = {
+  loading: true,
+  data: { medications: [], medLog: {}, feeds: [], weights: [], trackers: [], trackerLogs: [], notes: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [] },
+  loggerName: '',
+  isMedGiven: () => false,
+  toggleSetting: () => {},
+  saveMedication: async () => {},
+  deleteMedication: async () => {},
+  logMed: async () => {},
+  unlogMed: async () => {},
+  addFeed: async () => {},
+  deleteFeed: async () => {},
+  addWeight: async () => {},
+  addNote: async () => {},
+  deleteNote: async () => {},
+  saveTracker: async () => {},
+  deleteTracker: async () => {},
+  logTrackerEntry: async () => {},
+  deleteTrackerLog: async () => {},
+  logActivity: async () => {},
+  getTimeSlots: () => [],
+  getNextMed: () => null,
+  getMedStats: () => ({ total: 0, given: 0, missed: 0 }),
+  getTodayFeeds: () => [],
+  getLatestWeight: () => null,
+  getTodayNotes: () => [],
+  exportData: () => {},
+}
+
 export function useTracker() {
   const ctx = useContext(TrackerContext)
-  if (!ctx) throw new Error('useTracker must be used within TrackerProvider')
-  return ctx
+  return ctx || EMPTY_TRACKER
 }

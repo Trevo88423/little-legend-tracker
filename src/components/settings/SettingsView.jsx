@@ -4,6 +4,7 @@ import { useTracker } from '../../contexts/TrackerContext'
 import { formatTime12 } from '../../lib/dateUtils'
 import { catClasses, catIcons } from '../../lib/constants'
 import { useFamily } from '../../contexts/FamilyContext'
+import { usePushSubscription } from '../../hooks/usePushSubscription'
 
 const emptyMed = {
   id: null,
@@ -26,6 +27,12 @@ export default function SettingsView() {
   const [childName, setChildName] = useState('')
   const [childDob, setChildDob] = useState('')
   const [childSaving, setChildSaving] = useState(false)
+
+  const {
+    pushSupported, pushEnabled, pushPermission,
+    subscribe: pushSubscribe, unsubscribe: pushUnsubscribe,
+    loading: pushLoading, error: pushError, isIOS, isIOSInstalled
+  } = usePushSubscription()
 
   const { settings, medications } = data
 
@@ -109,27 +116,69 @@ export default function SettingsView() {
         </div>
 
         {settings.medAlarms && (
-          <button
-            className="t-btn t-btn-secondary t-btn-small"
-            style={{ marginBottom: 12 }}
-            onClick={async () => {
-              if (typeof Notification === 'undefined') {
-                alert('Notifications are not supported in this browser')
-                return
-              }
-              const perm = await Notification.requestPermission()
-              if (perm === 'granted') {
-                new Notification('💊 Test Notification', {
-                  body: 'Medication reminders are working!',
-                  tag: 'test',
-                })
-              } else {
-                alert('Notification permission was denied. Check your browser settings.')
-              }
-            }}
-          >
-            🔔 Test Notification
-          </button>
+          <>
+            <button
+              className="t-btn t-btn-secondary t-btn-small"
+              style={{ marginBottom: 12 }}
+              onClick={async () => {
+                if (typeof Notification === 'undefined') {
+                  alert('Notifications are not supported in this browser')
+                  return
+                }
+                const perm = await Notification.requestPermission()
+                if (perm === 'granted') {
+                  new Notification('💊 Test Notification', {
+                    body: 'Medication reminders are working!',
+                    tag: 'test',
+                  })
+                } else {
+                  alert('Notification permission was denied. Check your browser settings.')
+                }
+              }}
+            >
+              🔔 Test Notification
+            </button>
+
+            {pushSupported && (
+              <div style={{ marginBottom: 12 }}>
+                <div className="t-toggle-row">
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Background Notifications</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                      Get reminders even when the app is closed
+                    </div>
+                  </div>
+                  <div
+                    className={`t-toggle ${pushEnabled ? 'on' : ''}`}
+                    style={pushLoading ? { opacity: 0.5, pointerEvents: 'none' } : {}}
+                    onClick={() => pushEnabled ? pushUnsubscribe() : pushSubscribe()}
+                  >
+                    <div className="t-toggle-knob" />
+                  </div>
+                </div>
+                {pushError && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--color-red)', marginTop: 4 }}>
+                    {pushError}
+                  </div>
+                )}
+                {pushPermission === 'denied' && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--color-red)', marginTop: 4 }}>
+                    Notifications blocked. Enable them in your browser settings.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isIOS && !isIOSInstalled && (
+              <div style={{
+                fontSize: '0.75rem', color: 'var(--color-text-muted)',
+                marginBottom: 12, padding: '8px 12px',
+                background: 'var(--color-bg)', borderRadius: 8
+              }}>
+                To get background notifications on iOS, add this app to your Home Screen first (Share → Add to Home Screen).
+              </div>
+            )}
+          </>
         )}
 
         <div className="t-toggle-row">
