@@ -8,6 +8,19 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Handle PKCE auth code exchange (email confirmation, password reset, etc.)
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code)
+        .then(({ data, error }) => {
+          if (error) console.error('Code exchange failed:', error)
+          // Clean the code from URL
+          const cleanUrl = window.location.pathname
+          window.history.replaceState(null, '', cleanUrl)
+        })
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)

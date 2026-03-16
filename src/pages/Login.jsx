@@ -15,12 +15,11 @@ export default function Login() {
   const [confirmed, setConfirmed] = useState(false)
 
   useEffect(() => {
-    // Supabase redirects here after email confirmation with hash params
+    // Detect email confirmation redirect (PKCE code or legacy hash)
+    const params = new URLSearchParams(window.location.search)
     const hash = window.location.hash
-    if (hash && (hash.includes('type=signup') || hash.includes('type=email'))) {
+    if (params.get('code') || (hash && (hash.includes('type=signup') || hash.includes('type=email')))) {
       setConfirmed(true)
-      // Clean the URL hash
-      window.history.replaceState(null, '', '/login')
     }
   }, [])
 
