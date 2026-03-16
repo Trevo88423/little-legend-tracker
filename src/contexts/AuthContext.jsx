@@ -11,6 +11,15 @@ export function AuthProvider({ children }) {
     // Handle PKCE auth code exchange (email confirmation, password reset, etc.)
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
+    let pendingHandled = false
+
+    async function handlePending() {
+      // Guard: only run once per session initialization
+      if (pendingHandled) return
+      pendingHandled = true
+      await completePendingSignup()
+      await completePendingJoin()
+    }
 
     async function init() {
       // If there's a code, exchange it FIRST before doing anything else
@@ -26,8 +35,7 @@ export function AuthProvider({ children }) {
 
       // Complete pending signup/join if user is signed in
       if (session) {
-        await completePendingSignup()
-        await completePendingJoin()
+        await handlePending()
       }
 
       setLoading(false)
@@ -38,10 +46,8 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
 
-      // Complete pending signup/join after sign-in (but not during code exchange init)
-      if (event === 'SIGNED_IN' && session && !code) {
-        await completePendingSignup()
-        await completePendingJoin()
+      if (event === 'SIGNED_IN' && session) {
+        await handlePending()
       }
     })
 
@@ -51,6 +57,8 @@ export function AuthProvider({ children }) {
   async function completePendingSignup() {
     const pending = localStorage.getItem('pendingSignup')
     if (!pending) return
+    // Remove immediately to prevent double-fire
+    localStorage.removeItem('pendingSignup')
     try {
       const data = JSON.parse(pending)
       await supabase.rpc('complete_signup', {
@@ -62,14 +70,14 @@ export function AuthProvider({ children }) {
       })
     } catch (err) {
       console.error('Failed to complete pending signup:', err)
-    } finally {
-      localStorage.removeItem('pendingSignup')
     }
   }
 
   async function completePendingJoin() {
     const pending = localStorage.getItem('pendingJoin')
     if (!pending) return
+    // Remove immediately to prevent double-fire
+    localStorage.removeItem('pendingJoin')
     // Small delay to ensure auth.users row is propagated
     await new Promise(r => setTimeout(r, 1000))
     try {
@@ -83,7 +91,6 @@ export function AuthProvider({ children }) {
       if (rpcError) throw rpcError
       if (!families || families.length === 0) {
         console.error('Pending join: no family found with that name and PIN')
-        // Don't remove pendingJoin — let user retry via join page
         return
       }
       // Join the first matching family
@@ -93,10 +100,8 @@ export function AuthProvider({ children }) {
         p_pin_input: data.pin,
       })
       if (joinError) throw joinError
-      localStorage.removeItem('pendingJoin')
     } catch (err) {
       console.error('Failed to complete pending join:', err)
-      // Keep pendingJoin so it can retry on next sign-in
     }
   }
 
