@@ -38,21 +38,36 @@ export default function Signup() {
 
     try {
       // 1. Sign up the user
-      const { user } = await signUp(email.trim(), password)
+      const { user, session } = await signUp(email.trim(), password)
       if (!user) throw new Error('Signup failed - no user returned')
 
-      // 2. Complete signup via SECURITY DEFINER RPC (uses auth.uid() server-side)
+      // Store pending signup data for after email verification
+      const signupData = {
+        familyName: `${displayName.trim()}'s Family`,
+        pin: familyPin,
+        displayName: displayName.trim(),
+        childName: childName.trim(),
+        childDob: childDob || null,
+      }
+
+      // If no session (email confirmation required), save data and redirect
+      if (!session) {
+        sessionStorage.setItem('pendingSignup', JSON.stringify(signupData))
+        navigate('/check-email', { state: { email: email.trim() } })
+        return
+      }
+
+      // Session exists - complete signup immediately
       const { data, error: rpcError } = await supabase.rpc('complete_signup', {
-        p_family_name: `${displayName.trim()}'s Family`,
-        p_pin_input: familyPin,
-        p_display_name: displayName.trim(),
-        p_child_name: childName.trim(),
-        p_child_dob: childDob || null,
+        p_family_name: signupData.familyName,
+        p_pin_input: signupData.pin,
+        p_display_name: signupData.displayName,
+        p_child_name: signupData.childName,
+        p_child_dob: signupData.childDob,
       })
       if (rpcError) throw rpcError
 
-      // 3. Navigate to check email page
-      navigate('/check-email', { state: { email: email.trim() } })
+      navigate('/app')
     } catch (err) {
       setError(err.message || 'Signup failed')
     } finally {

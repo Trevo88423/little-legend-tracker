@@ -13,8 +13,29 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
+
+      // Complete pending signup after email verification + sign-in
+      if (event === 'SIGNED_IN' && session) {
+        const pending = sessionStorage.getItem('pendingSignup')
+        if (pending) {
+          try {
+            const data = JSON.parse(pending)
+            await supabase.rpc('complete_signup', {
+              p_family_name: data.familyName,
+              p_pin_input: data.pin,
+              p_display_name: data.displayName,
+              p_child_name: data.childName,
+              p_child_dob: data.childDob,
+            })
+          } catch (err) {
+            console.error('Failed to complete pending signup:', err)
+          } finally {
+            sessionStorage.removeItem('pendingSignup')
+          }
+        }
+      }
     })
 
     return () => subscription.unsubscribe()
