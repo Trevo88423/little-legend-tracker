@@ -53,6 +53,31 @@ export default function TrackerApp() {
 
   const latestWeight = getLatestWeight()
 
+  function getAge(dob) {
+    if (!dob) return null
+    const birth = new Date(dob + 'T00:00:00')
+    const now = new Date()
+    let years = now.getFullYear() - birth.getFullYear()
+    let months = now.getMonth() - birth.getMonth()
+    let days = now.getDate() - birth.getDate()
+    if (days < 0) {
+      months--
+      const prevMonth = new Date(now.getFullYear(), now.getMonth(), 0)
+      days += prevMonth.getDate()
+    }
+    if (months < 0) {
+      years--
+      months += 12
+    }
+    const parts = []
+    if (years > 0) parts.push(`${years}y`)
+    if (months > 0) parts.push(`${months}m`)
+    parts.push(`${days}d`)
+    return parts.join(' ')
+  }
+
+  const age = getAge(activeChild.date_of_birth)
+
   async function handleLogout() {
     await signOut()
     navigate('/login')
@@ -70,6 +95,7 @@ export default function TrackerApp() {
           <div>
             <h1>{activeChild.name} &#11088;</h1>
             <div className="ll-subtitle">
+              {age && <>{age} old &middot; </>}
               Logged in as {loggerName}
               {latestWeight ? ` \u00B7 ${latestWeight.value}kg` : ''}
             </div>
