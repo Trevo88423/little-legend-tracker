@@ -17,11 +17,15 @@ const emptyMed = {
 
 export default function SettingsView() {
   const { data, toggleSetting, saveMedication, deleteMedication, exportData } = useTracker()
-  const { family, members, activeChild } = useFamily()
+  const { family, members, activeChild, updateChild } = useFamily()
   const navigate = useNavigate()
 
   const [showMedModal, setShowMedModal] = useState(false)
   const [medForm, setMedForm] = useState({ ...emptyMed })
+  const [editingChild, setEditingChild] = useState(false)
+  const [childName, setChildName] = useState('')
+  const [childDob, setChildDob] = useState('')
+  const [childSaving, setChildSaving] = useState(false)
 
   const { settings, medications } = data
 
@@ -222,11 +226,73 @@ export default function SettingsView() {
                 Your partner needs the child's name + your PIN to join
               </div>
             </div>
-            {activeChild && (
+            {activeChild && !editingChild && (
               <div style={{ marginBottom: 8 }}>
                 <strong>Active Child:</strong> {activeChild.name}
-                <div style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
-                  Family: {family.id?.slice(0, 8)} / Child: {activeChild.id?.slice(0, 8)}
+                {activeChild.date_of_birth && (
+                  <span style={{ marginLeft: 8, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                    DOB: {activeChild.date_of_birth}
+                  </span>
+                )}
+                <button
+                  className="t-btn t-btn-secondary t-btn-small"
+                  style={{ marginLeft: 8 }}
+                  onClick={() => {
+                    setChildName(activeChild.name)
+                    setChildDob(activeChild.date_of_birth || '')
+                    setEditingChild(true)
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+            {activeChild && editingChild && (
+              <div style={{ marginBottom: 8, padding: 12, background: 'var(--color-bg)', borderRadius: 8 }}>
+                <div className="t-form-row" style={{ marginBottom: 8 }}>
+                  <label style={{ fontWeight: 700, fontSize: '0.78rem' }}>Name</label>
+                  <input
+                    type="text"
+                    value={childName}
+                    onChange={e => setChildName(e.target.value)}
+                  />
+                </div>
+                <div className="t-form-row" style={{ marginBottom: 8 }}>
+                  <label style={{ fontWeight: 700, fontSize: '0.78rem' }}>Date of Birth</label>
+                  <input
+                    type="date"
+                    value={childDob}
+                    onChange={e => setChildDob(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="t-btn t-btn-secondary t-btn-small"
+                    onClick={() => setEditingChild(false)}
+                    disabled={childSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="t-btn t-btn-primary t-btn-small"
+                    disabled={childSaving || !childName.trim()}
+                    onClick={async () => {
+                      setChildSaving(true)
+                      try {
+                        await updateChild(activeChild.id, {
+                          name: childName.trim(),
+                          date_of_birth: childDob || null,
+                        })
+                        setEditingChild(false)
+                      } catch (err) {
+                        alert('Failed to update: ' + err.message)
+                      } finally {
+                        setChildSaving(false)
+                      }
+                    }}
+                  >
+                    {childSaving ? 'Saving...' : 'Save'}
+                  </button>
                 </div>
               </div>
             )}

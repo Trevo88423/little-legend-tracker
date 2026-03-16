@@ -79,10 +79,20 @@ export function FamilyProvider({ children }) {
     localStorage.setItem('ll-active-child', child.id)
   }
 
+  async function updateChild(childId, updates) {
+    const { error } = await supabase
+      .from('children')
+      .update(updates)
+      .eq('id', childId)
+    if (error) throw error
+    // Refresh local state
+    await loadFamilyData()
+  }
+
   return (
     <FamilyContext.Provider value={{
       family, members, children: children_, activeChild, currentMember,
-      loading, selectChild, reload: loadFamilyData
+      loading, selectChild, updateChild, reload: loadFamilyData
     }}>
       {children}
     </FamilyContext.Provider>
