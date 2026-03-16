@@ -113,17 +113,16 @@ serve(async (req: Request) => {
       const todayStr = nowInTz.toISOString().split("T")[0]; // YYYY-MM-DD
 
       // Get today's med_logs to check what's already given
+      // med_key format: "{medication_id}_{HH:MM}"
       const { data: medLogs } = await supabase
         .from("med_logs")
-        .select("medication_id, time")
+        .select("med_key")
         .eq("family_id", familyId)
         .eq("child_id", childId)
         .eq("date", todayStr);
 
       const givenSet = new Set(
-        (medLogs || []).map((log: { medication_id: string; time: string }) =>
-          `${log.medication_id}_${log.time}`
-        )
+        (medLogs || []).map((log: { med_key: string }) => log.med_key)
       );
 
       for (const med of medications as Medication[]) {
