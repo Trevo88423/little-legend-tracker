@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTracker } from '../../contexts/TrackerContext'
 import { formatTime12 } from '../../lib/dateUtils'
 import { catClasses, catIcons } from '../../lib/constants'
@@ -17,6 +18,7 @@ const emptyMed = {
 export default function SettingsView() {
   const { data, toggleSetting, saveMedication, deleteMedication, exportData } = useTracker()
   const { family, members, activeChild } = useFamily()
+  const navigate = useNavigate()
 
   const [showMedModal, setShowMedModal] = useState(false)
   const [medForm, setMedForm] = useState({ ...emptyMed })
@@ -199,9 +201,14 @@ export default function SettingsView() {
       {/* Data Management */}
       <div className="t-card">
         <div className="t-card-title">Data Management</div>
-        <button className="t-btn t-btn-secondary" onClick={exportData}>
-          Export All Data
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="t-btn t-btn-secondary" style={{ flex: 1 }} onClick={exportData}>
+            Export All Data
+          </button>
+          <button className="t-btn t-btn-primary" style={{ flex: 1 }} onClick={() => navigate('/app/ai-setup')}>
+            Import via AI
+          </button>
+        </div>
       </div>
 
       {/* Family Info */}

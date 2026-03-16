@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTracker } from '../../contexts/TrackerContext'
 import { today, formatTime12, formatDate } from '../../lib/dateUtils'
 import { catIcons, dotColors, activityIcons } from '../../lib/constants'
@@ -9,6 +10,7 @@ export default function DashboardView() {
     isMedGiven, getTimeSlots
   } = useTracker()
 
+  const navigate = useNavigate()
   const [notifDismissed, setNotifDismissed] = useState(() => localStorage.getItem('ll-notif-dismissed') === '1')
   const [notifPermission, setNotifPermission] = useState(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'denied'
@@ -54,8 +56,30 @@ export default function DashboardView() {
     localStorage.setItem('ll-notif-dismissed', '1')
   }
 
+  const showAiBanner = data.medications.length === 0
+
   return (
     <div>
+      {showAiBanner && (
+        <div
+          className="t-card"
+          style={{ cursor: 'pointer', background: 'var(--color-primary-light)', border: '2px solid var(--color-primary)' }}
+          onClick={() => navigate('/app/ai-setup')}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: '1.5rem' }}>+</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--color-primary-dark)' }}>
+                Quick Setup with AI
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
+                Import medications from your discharge papers in minutes
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showNotifBanner && (
         <div className="t-notif-banner" onClick={requestNotifications} style={{ cursor: 'pointer', position: 'relative' }}>
           <span className="t-notif-icon">🔔</span>

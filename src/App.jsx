@@ -20,6 +20,7 @@ import TrackersView from './components/trackers/TrackersView'
 import HistoryView from './components/history/HistoryView'
 import SettingsView from './components/settings/SettingsView'
 import ReportsView from './components/reports/ReportsView'
+import AISetupWizard from './components/ai-setup/AISetupWizard'
 import './styles/variables.css'
 
 export default function App() {
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="history" element={<HistoryView />} />
               <Route path="settings" element={<SettingsView />} />
               <Route path="reports" element={<ReportsView />} />
+              <Route path="ai-setup" element={<AISetupWizard />} />
             </Route>
           </Route>
 
