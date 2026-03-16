@@ -24,25 +24,10 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null)
 
-      // Complete pending signup if user is already signed in (e.g. page refresh)
+      // Complete pending signup/join if user is already signed in (e.g. page refresh)
       if (session) {
-        const pending = localStorage.getItem('pendingSignup')
-        if (pending) {
-          try {
-            const data = JSON.parse(pending)
-            await supabase.rpc('complete_signup', {
-              p_family_name: data.familyName,
-              p_pin_input: data.pin,
-              p_display_name: data.displayName,
-              p_child_name: data.childName,
-              p_child_dob: data.childDob,
-            })
-          } catch (err) {
-            console.error('Failed to complete pending signup:', err)
-          } finally {
-            localStorage.removeItem('pendingSignup')
-          }
-        }
+        await completePendingSignup()
+        await completePendingJoin()
       }
 
       setLoading(false)
@@ -51,30 +36,64 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
 
-      // Complete pending signup after email verification + sign-in
+      // Complete pending signup/join after email verification + sign-in
       if (event === 'SIGNED_IN' && session) {
-        const pending = localStorage.getItem('pendingSignup')
-        if (pending) {
-          try {
-            const data = JSON.parse(pending)
-            await supabase.rpc('complete_signup', {
-              p_family_name: data.familyName,
-              p_pin_input: data.pin,
-              p_display_name: data.displayName,
-              p_child_name: data.childName,
-              p_child_dob: data.childDob,
-            })
-          } catch (err) {
-            console.error('Failed to complete pending signup:', err)
-          } finally {
-            localStorage.removeItem('pendingSignup')
-          }
-        }
+        await completePendingSignup()
+        await completePendingJoin()
       }
     })
 
     return () => subscription.unsubscribe()
   }, [])
+
+  async function completePendingSignup() {
+    const pending = localStorage.getItem('pendingSignup')
+    if (!pending) return
+    try {
+      const data = JSON.parse(pending)
+      await supabase.rpc('complete_signup', {
+        p_family_name: data.familyName,
+        p_pin_input: data.pin,
+        p_display_name: data.displayName,
+        p_child_name: data.childName,
+        p_child_dob: data.childDob,
+      })
+    } catch (err) {
+      console.error('Failed to complete pending signup:', err)
+    } finally {
+      localStorage.removeItem('pendingSignup')
+    }
+  }
+
+  async function completePendingJoin() {
+    const pending = localStorage.getItem('pendingJoin')
+    if (!pending) return
+    try {
+      const data = JSON.parse(pending)
+      // Verify PIN + family name
+      const { data: families, error: rpcError } = await supabase
+        .rpc('verify_family_pin', {
+          pin_input: data.pin,
+          family_name_input: data.familyName,
+        })
+      if (rpcError) throw rpcError
+      if (!families || families.length === 0) {
+        console.error('Pending join: no family found with that PIN and name')
+        return
+      }
+      // Join the first matching family
+      const { error: joinError } = await supabase.rpc('complete_join_family', {
+        p_family_id: families[0].family_id,
+        p_display_name: data.displayName,
+        p_pin_input: data.pin,
+      })
+      if (joinError) throw joinError
+    } catch (err) {
+      console.error('Failed to complete pending join:', err)
+    } finally {
+      localStorage.removeItem('pendingJoin')
+    }
+  }
 
   async function signUp(email, password) {
     const { data, error } = await supabase.auth.signUp({

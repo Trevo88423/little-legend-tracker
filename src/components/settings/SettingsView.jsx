@@ -218,6 +218,9 @@ export default function SettingsView() {
           <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
             <div style={{ marginBottom: 8 }}>
               <strong>Family:</strong> {family.name || 'My Family'}
+              <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+                Your partner needs this name + your PIN to join
+              </div>
             </div>
             {activeChild && (
               <div style={{ marginBottom: 8 }}>

@@ -40,6 +40,11 @@ export default function JoinFamily() {
 
         // If email confirmation is required, there's no session yet
         if (!session) {
+          localStorage.setItem('pendingJoin', JSON.stringify({
+            familyName: familyName.trim(),
+            pin: familyPin,
+            displayName: displayName.trim(),
+          }))
           navigate('/check-email', {
             state: {
               email: email.trim(),
@@ -188,7 +193,7 @@ export default function JoinFamily() {
                 type="text"
                 value={familyName}
                 onChange={(e) => setFamilyName(e.target.value)}
-                placeholder="The family name your partner chose"
+                placeholder="e.g. Dad's Family, Mum's Family"
                 required
               />
             </div>
