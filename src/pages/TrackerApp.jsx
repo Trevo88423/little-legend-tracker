@@ -38,14 +38,32 @@ export default function TrackerApp() {
   }
 
   if (!activeChild) {
+    const hasPendingJoin = !!localStorage.getItem('pendingJoin')
     return (
       <div className="ll-auth-screen">
         <div className="ll-auth-card" style={{ textAlign: 'center' }}>
           <span className="auth-icon">&#128118;</span>
-          <h1>No Child Found</h1>
+          <h1>{hasPendingJoin ? 'Almost There!' : 'No Child Found'}</h1>
           <p className="auth-subtitle">
-            Please add a child to start tracking. Go to Settings to set up your little legend.
+            {hasPendingJoin
+              ? 'Your join request is being processed. If it doesn\'t complete automatically, try joining again.'
+              : 'You need to join a family or create an account to start tracking.'}
           </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
+            <button
+              className="auth-submit-btn"
+              onClick={() => navigate('/join')}
+            >
+              Join a Family
+            </button>
+            <button
+              className="auth-submit-btn"
+              style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
+              onClick={() => { localStorage.removeItem('pendingJoin'); navigate('/signup') }}
+            >
+              Create New Account
+            </button>
+          </div>
         </div>
       </div>
     )

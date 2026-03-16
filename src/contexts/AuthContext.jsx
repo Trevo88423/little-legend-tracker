@@ -11,33 +11,35 @@ export function AuthProvider({ children }) {
     // Handle PKCE auth code exchange (email confirmation, password reset, etc.)
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
-    if (code) {
-      supabase.auth.exchangeCodeForSession(code)
-        .then(({ data, error }) => {
-          if (error) console.error('Code exchange failed:', error)
-          // Clean the code from URL
-          const cleanUrl = window.location.pathname
-          window.history.replaceState(null, '', cleanUrl)
-        })
-    }
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    async function init() {
+      // If there's a code, exchange it FIRST before doing anything else
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) console.error('Code exchange failed:', error)
+        // Clean the code from URL
+        window.history.replaceState(null, '', window.location.pathname)
+      }
+
+      const { data: { session } } = await supabase.auth.getSession()
       setUser(session?.user ?? null)
 
-      // Complete pending signup/join if user is already signed in (e.g. page refresh)
+      // Complete pending signup/join if user is signed in
       if (session) {
         await completePendingSignup()
         await completePendingJoin()
       }
 
       setLoading(false)
-    })
+    }
+
+    init()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
 
-      // Complete pending signup/join after email verification + sign-in
-      if (event === 'SIGNED_IN' && session) {
+      // Complete pending signup/join after sign-in (but not during code exchange init)
+      if (event === 'SIGNED_IN' && session && !code) {
         await completePendingSignup()
         await completePendingJoin()
       }
@@ -68,6 +70,8 @@ export function AuthProvider({ children }) {
   async function completePendingJoin() {
     const pending = localStorage.getItem('pendingJoin')
     if (!pending) return
+    // Small delay to ensure auth.users row is propagated
+    await new Promise(r => setTimeout(r, 1000))
     try {
       const data = JSON.parse(pending)
       // Verify PIN + family name
@@ -78,7 +82,8 @@ export function AuthProvider({ children }) {
         })
       if (rpcError) throw rpcError
       if (!families || families.length === 0) {
-        console.error('Pending join: no family found with that PIN and name')
+        console.error('Pending join: no family found with that name and PIN')
+        // Don't remove pendingJoin — let user retry via join page
         return
       }
       // Join the first matching family
@@ -88,10 +93,10 @@ export function AuthProvider({ children }) {
         p_pin_input: data.pin,
       })
       if (joinError) throw joinError
+      localStorage.removeItem('pendingJoin')
     } catch (err) {
       console.error('Failed to complete pending join:', err)
-    } finally {
-      localStorage.removeItem('pendingJoin')
+      // Keep pendingJoin so it can retry on next sign-in
     }
   }
 

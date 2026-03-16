@@ -8,11 +8,14 @@ export default function JoinFamily() {
   const navigate = useNavigate()
   const { user, signUp } = useAuth()
 
+  // Pre-fill from pendingJoin if available (e.g. after failed auto-join)
+  const pending = (() => { try { return JSON.parse(localStorage.getItem('pendingJoin') || 'null') } catch { return null } })()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [familyName, setFamilyName] = useState('')
-  const [familyPin, setFamilyPin] = useState('')
+  const [displayName, setDisplayName] = useState(pending?.displayName || '')
+  const [familyName, setFamilyName] = useState(pending?.familyName || '')
+  const [familyPin, setFamilyPin] = useState(pending?.pin || '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
