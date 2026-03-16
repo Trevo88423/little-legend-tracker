@@ -43,7 +43,7 @@ export default function Signup() {
 
       // Store pending signup data for after email verification
       const signupData = {
-        familyName: `${displayName.trim()}'s Family`,
+        familyName: childName.trim(),
         pin: familyPin,
         displayName: displayName.trim(),
         childName: childName.trim(),

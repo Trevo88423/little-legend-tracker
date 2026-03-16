@@ -187,13 +187,13 @@ export default function JoinFamily() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="familyName">Family Name</label>
+              <label htmlFor="familyName">Child's Name</label>
               <input
                 id="familyName"
                 type="text"
                 value={familyName}
                 onChange={(e) => setFamilyName(e.target.value)}
-                placeholder="e.g. Dad's Family, Mum's Family"
+                placeholder="Your little legend's name"
                 required
               />
             </div>
