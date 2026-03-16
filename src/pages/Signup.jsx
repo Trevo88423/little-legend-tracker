@@ -58,7 +58,7 @@ export default function Signup() {
       }
 
       // Session exists - complete signup immediately
-      const { data, error: rpcError } = await supabase.rpc('complete_signup', {
+      const { error: rpcError } = await supabase.rpc('complete_signup', {
         p_family_name: signupData.familyName,
         p_pin_input: signupData.pin,
         p_display_name: signupData.displayName,
@@ -66,6 +66,7 @@ export default function Signup() {
         p_child_dob: signupData.childDob,
       })
       if (rpcError) throw rpcError
+      localStorage.removeItem('pendingSignup')
 
       navigate('/app')
     } catch (err) {

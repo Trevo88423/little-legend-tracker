@@ -19,7 +19,7 @@ const tabs = [
 
 export default function TrackerApp() {
   const navigate = useNavigate()
-  const { signOut } = useAuth()
+  const { signOut, setupError } = useAuth()
   const { activeChild, loading: familyLoading, currentMember } = useFamily()
   const { loading: trackerLoading, loggerName, getLatestWeight } = useTracker()
   useNotifications()
@@ -39,19 +39,40 @@ export default function TrackerApp() {
 
   if (!activeChild) {
     const hasPendingJoin = !!localStorage.getItem('pendingJoin')
+    const hasPendingSignup = !!localStorage.getItem('pendingSignup')
+    const hasPending = hasPendingJoin || hasPendingSignup
+
+    let title = 'No Child Found'
+    let message = 'You need to join a family or create an account to start tracking.'
+    if (setupError === 'signup') {
+      title = 'Setup Issue'
+      message = 'We had trouble finishing your account setup. Please try again or refresh the page.'
+    } else if (setupError === 'join') {
+      title = 'Join Issue'
+      message = 'We couldn\'t complete joining the family. The child\'s name or PIN may be wrong. Please try again.'
+    } else if (hasPending) {
+      title = 'Almost There!'
+      message = 'Your request is being processed. If it doesn\'t complete automatically, try refreshing or join again.'
+    }
+
     return (
       <div className="ll-auth-screen">
         <div className="ll-auth-card" style={{ textAlign: 'center' }}>
           <span className="auth-icon">&#128118;</span>
-          <h1>{hasPendingJoin ? 'Almost There!' : 'No Child Found'}</h1>
-          <p className="auth-subtitle">
-            {hasPendingJoin
-              ? 'Your join request is being processed. If it doesn\'t complete automatically, try joining again.'
-              : 'You need to join a family or create an account to start tracking.'}
-          </p>
+          <h1>{title}</h1>
+          <p className="auth-subtitle">{message}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
+            {(setupError || hasPending) && (
+              <button
+                className="auth-submit-btn"
+                onClick={() => window.location.reload()}
+              >
+                Refresh &amp; Retry
+              </button>
+            )}
             <button
               className="auth-submit-btn"
+              style={setupError || hasPending ? { background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' } : {}}
               onClick={() => navigate('/join')}
             >
               Join a Family
@@ -59,7 +80,7 @@ export default function TrackerApp() {
             <button
               className="auth-submit-btn"
               style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
-              onClick={() => { localStorage.removeItem('pendingJoin'); navigate('/signup') }}
+              onClick={() => { localStorage.removeItem('pendingJoin'); localStorage.removeItem('pendingSignup'); navigate('/signup') }}
             >
               Create New Account
             </button>

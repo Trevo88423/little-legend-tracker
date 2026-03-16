@@ -6,6 +6,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [setupError, setSetupError] = useState(null)
 
   useEffect(() => {
     // Handle PKCE auth code exchange (email confirmation, password reset, etc.)
@@ -57,27 +58,27 @@ export function AuthProvider({ children }) {
   async function completePendingSignup() {
     const pending = localStorage.getItem('pendingSignup')
     if (!pending) return
-    // Remove immediately to prevent double-fire
-    localStorage.removeItem('pendingSignup')
     try {
       const data = JSON.parse(pending)
-      await supabase.rpc('complete_signup', {
+      const { error } = await supabase.rpc('complete_signup', {
         p_family_name: data.familyName,
         p_pin_input: data.pin,
         p_display_name: data.displayName,
         p_child_name: data.childName,
         p_child_dob: data.childDob,
       })
+      if (error) throw error
+      // Only clear after success (idempotent RPC prevents duplicates on retry)
+      localStorage.removeItem('pendingSignup')
     } catch (err) {
       console.error('Failed to complete pending signup:', err)
+      setSetupError('signup')
     }
   }
 
   async function completePendingJoin() {
     const pending = localStorage.getItem('pendingJoin')
     if (!pending) return
-    // Remove immediately to prevent double-fire
-    localStorage.removeItem('pendingJoin')
     // Small delay to ensure auth.users row is propagated
     await new Promise(r => setTimeout(r, 1000))
     try {
@@ -91,6 +92,7 @@ export function AuthProvider({ children }) {
       if (rpcError) throw rpcError
       if (!families || families.length === 0) {
         console.error('Pending join: no family found with that name and PIN')
+        setSetupError('join')
         return
       }
       // Join the first matching family
@@ -100,8 +102,11 @@ export function AuthProvider({ children }) {
         p_pin_input: data.pin,
       })
       if (joinError) throw joinError
+      // Only clear after success (idempotent RPC prevents duplicates on retry)
+      localStorage.removeItem('pendingJoin')
     } catch (err) {
       console.error('Failed to complete pending join:', err)
+      setSetupError('join')
     }
   }
 
@@ -141,7 +146,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, resetPassword, updatePassword }}>
+    <AuthContext.Provider value={{ user, loading, setupError, signUp, signIn, signOut, resetPassword, updatePassword }}>
       {children}
     </AuthContext.Provider>
   )
