@@ -108,7 +108,8 @@ export default function PromptStep({ onNext, onBack }) {
       <div className="t-card" style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', background: 'var(--color-primary-light)' }}>
         <div style={{ fontWeight: 800, marginBottom: 4 }}>Works with anything:</div>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
-          <li style={{ marginBottom: 2 }}>Photo of a prescription &rarr; adds medications</li>
+          <li style={{ marginBottom: 2 }}>Discharge papers or hospital med list &rarr; bulk import all medications</li>
+          <li style={{ marginBottom: 2 }}>Photo of a new prescription &rarr; adds the medication</li>
           <li style={{ marginBottom: 2 }}>Photo of the clinic whiteboard &rarr; adds today&apos;s weight</li>
           <li style={{ marginBottom: 2 }}>Photo of a feeding plan update &rarr; adds as a note</li>
           <li>&ldquo;We started tracking oxygen sats every 4 hours&rdquo; &rarr; adds a tracker</li>
