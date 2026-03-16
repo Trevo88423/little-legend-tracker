@@ -73,15 +73,27 @@ export function useNotifications() {
   }, [data.settings.medAlarms, data.medications])
 
   function sendNotification(title, body, tag) {
-    try {
-      new Notification(title, { body, tag, requireInteraction: true })
-    } catch (e) {
-      // Fallback for mobile - try service worker registration
-      if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
-        navigator.serviceWorker.ready.then(reg => {
-          reg.showNotification(title, { body, tag, requireInteraction: true })
-        }).catch(() => {})
-      }
+    // Always use service worker showNotification so tags deduplicate
+    // with server-side push notifications (which also use SW tags)
+    if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification(title, {
+          body,
+          tag,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/icon-192.png',
+          requireInteraction: true,
+          actions: [
+            { action: 'open', title: 'Open' },
+            { action: 'dismiss', title: 'Dismiss' }
+          ]
+        })
+      }).catch(() => {
+        // Last resort fallback
+        try { new Notification(title, { body, tag, requireInteraction: true }) } catch {}
+      })
+    } else {
+      try { new Notification(title, { body, tag, requireInteraction: true }) } catch {}
     }
   }
 

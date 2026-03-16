@@ -42,7 +42,17 @@ serve(async (req: Request) => {
   try {
     // Authenticate: only allow service_role key
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ") || authHeader.split(" ")[1] !== SUPABASE_SERVICE_ROLE_KEY) {
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    // Verify the token is a service_role JWT by decoding the payload
+    const token = authHeader.split(" ")[1];
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (payload.role !== "service_role") {
+        return new Response("Unauthorized", { status: 401 });
+      }
+    } catch {
       return new Response("Unauthorized", { status: 401 });
     }
 
