@@ -21,17 +21,12 @@ export function AuthProvider({ children }) {
         })
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null)
 
-      // Complete pending signup after email verification + sign-in
-      if (event === 'SIGNED_IN' && session) {
-        const pending = sessionStorage.getItem('pendingSignup')
+      // Complete pending signup if user is already signed in (e.g. page refresh)
+      if (session) {
+        const pending = localStorage.getItem('pendingSignup')
         if (pending) {
           try {
             const data = JSON.parse(pending)
@@ -45,7 +40,34 @@ export function AuthProvider({ children }) {
           } catch (err) {
             console.error('Failed to complete pending signup:', err)
           } finally {
-            sessionStorage.removeItem('pendingSignup')
+            localStorage.removeItem('pendingSignup')
+          }
+        }
+      }
+
+      setLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      setUser(session?.user ?? null)
+
+      // Complete pending signup after email verification + sign-in
+      if (event === 'SIGNED_IN' && session) {
+        const pending = localStorage.getItem('pendingSignup')
+        if (pending) {
+          try {
+            const data = JSON.parse(pending)
+            await supabase.rpc('complete_signup', {
+              p_family_name: data.familyName,
+              p_pin_input: data.pin,
+              p_display_name: data.displayName,
+              p_child_name: data.childName,
+              p_child_dob: data.childDob,
+            })
+          } catch (err) {
+            console.error('Failed to complete pending signup:', err)
+          } finally {
+            localStorage.removeItem('pendingSignup')
           }
         }
       }

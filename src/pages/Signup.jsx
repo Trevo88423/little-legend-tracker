@@ -52,7 +52,7 @@ export default function Signup() {
 
       // If no session (email confirmation required), save data and redirect
       if (!session) {
-        sessionStorage.setItem('pendingSignup', JSON.stringify(signupData))
+        localStorage.setItem('pendingSignup', JSON.stringify(signupData))
         navigate('/check-email', { state: { email: email.trim() } })
         return
       }
