@@ -225,6 +225,9 @@ export default function SettingsView() {
             {activeChild && (
               <div style={{ marginBottom: 8 }}>
                 <strong>Active Child:</strong> {activeChild.name}
+                <div style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
+                  Family: {family.id?.slice(0, 8)} / Child: {activeChild.id?.slice(0, 8)}
+                </div>
               </div>
             )}
             {members.length > 0 && (
