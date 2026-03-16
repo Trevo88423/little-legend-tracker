@@ -284,9 +284,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Verify a family PIN with rate limiting (called from join)
-CREATE OR REPLACE FUNCTION verify_family_pin(pin_input TEXT)
-RETURNS TABLE(family_id UUID, family_name TEXT) AS $$
+-- Verify a family PIN + name with rate limiting (called from join)
+CREATE OR REPLACE FUNCTION verify_family_pin(pin_input TEXT, family_name_input TEXT)
+RETURNS TABLE(family_id UUID) AS $$
 DECLARE
   v_user_id UUID := auth.uid();
   v_recent_attempts INT;
@@ -311,9 +311,46 @@ BEGIN
   DELETE FROM pin_attempts WHERE attempted_at < now() - interval '1 hour';
 
   RETURN QUERY
-  SELECT f.id, f.name
+  SELECT f.id
   FROM families f
-  WHERE f.pin_hash = crypt(pin_input, f.pin_hash);
+  WHERE f.pin_hash = crypt(pin_input, f.pin_hash)
+    AND LOWER(f.name) = LOWER(family_name_input);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Confirm family by existing member email (fallback for PIN+name collisions)
+CREATE OR REPLACE FUNCTION confirm_family_by_member_email(
+  p_family_ids UUID[],
+  p_member_email TEXT
+)
+RETURNS UUID AS $$
+DECLARE
+  v_member_user_id UUID;
+  v_matched_family_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT id INTO v_member_user_id
+  FROM auth.users
+  WHERE email = LOWER(TRIM(p_member_email));
+
+  IF v_member_user_id IS NULL THEN
+    RAISE EXCEPTION 'No family member found with that email. Please check and try again.';
+  END IF;
+
+  SELECT fm.family_id INTO v_matched_family_id
+  FROM family_members fm
+  WHERE fm.user_id = v_member_user_id
+    AND fm.family_id = ANY(p_family_ids)
+  LIMIT 1;
+
+  IF v_matched_family_id IS NULL THEN
+    RAISE EXCEPTION 'No family member found with that email. Please check and try again.';
+  END IF;
+
+  RETURN v_matched_family_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
