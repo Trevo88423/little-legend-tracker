@@ -206,7 +206,7 @@ export default function SettingsView() {
             Export All Data
           </button>
           <button className="t-btn t-btn-primary" style={{ flex: 1 }} onClick={() => navigate('/app/ai-setup')}>
-            Import via AI
+            Smart Import
           </button>
         </div>
       </div>

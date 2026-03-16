@@ -56,24 +56,39 @@ export default function DashboardView() {
     localStorage.setItem('ll-notif-dismissed', '1')
   }
 
-  const showAiBanner = data.medications.length === 0
+  const [aiBannerDismissed, setAiBannerDismissed] = useState(() => localStorage.getItem('ll-ai-banner-dismissed') === '1')
+  const showAiBanner = data.medications.length === 0 && !aiBannerDismissed
+
+  function dismissAiBanner() {
+    setAiBannerDismissed(true)
+    localStorage.setItem('ll-ai-banner-dismissed', '1')
+  }
 
   return (
     <div>
       {showAiBanner && (
         <div
           className="t-card"
-          style={{ cursor: 'pointer', background: 'var(--color-primary-light)', border: '2px solid var(--color-primary)' }}
+          style={{ cursor: 'pointer', background: 'var(--color-primary-light)', border: '2px solid var(--color-primary)', position: 'relative' }}
           onClick={() => navigate('/app/ai-setup')}
         >
+          <button
+            onClick={(e) => { e.stopPropagation(); dismissAiBanner() }}
+            style={{
+              position: 'absolute', top: 6, right: 8,
+              background: 'none', border: 'none', color: 'var(--color-text-muted)',
+              fontSize: '1.1rem', cursor: 'pointer', opacity: 0.7, padding: '2px 6px',
+            }}
+            aria-label="Dismiss"
+          >x</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: '1.5rem' }}>+</span>
             <div>
               <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--color-primary-dark)' }}>
-                Quick Setup with AI
+                Smart Import
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
-                Import medications from your discharge papers in minutes
+                Snap a photo or describe what to add &mdash; an AI chatbot does the rest
               </div>
             </div>
           </div>

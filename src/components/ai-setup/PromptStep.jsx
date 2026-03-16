@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
-const PROMPT_TEXT = `I'm setting up a baby medication tracker app. Please read the attached discharge papers / medication list and output a JSON object with this exact format. Output ONLY the JSON, no other text.
+const PROMPT_TEXT = `I'm using a baby medication tracker app. Please read the attached photo(s) or information provided and output a JSON object with this exact format. Only include sections that are relevant — leave the rest as empty arrays or null. Output ONLY the JSON, no other text.
 
 {
-  "baby_name": "Name from the papers (optional)",
+  "baby_name": "Name if mentioned (optional)",
   "medications": [
     {
       "name": "Medication name",
@@ -34,7 +34,7 @@ const PROMPT_TEXT = `I'm setting up a baby medication tracker app. Please read t
     "frequency": "How often",
     "instructions": "Special feeding instructions"
   },
-  "notes": ["Any important notes from the papers"]
+  "notes": ["Any important notes from the source"]
 }
 
 Rules:
@@ -43,7 +43,7 @@ Rules:
 - Tracker type must be one of: number, counter, note
 - Feed type must be one of: bottle, tube, breast
 - Weight value in kg
-- Include ALL medications mentioned in the papers
+- Include ALL medications mentioned
 - If unsure about a category, use "other"
 - If a medication is PRN / as-needed, put "as needed" in instructions and set times to an empty array []
 - For purpose, use plain parent-friendly language (e.g. "helps the heart pump better" not "afterload reduction")
@@ -78,7 +78,7 @@ export default function PromptStep({ onNext, onBack }) {
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontWeight: 800, fontSize: '1rem', marginBottom: 4 }}>Copy this prompt</div>
         <p style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', margin: 0 }}>
-          Paste it into any AI chatbot (ChatGPT, Claude, Gemini) along with a photo of your discharge papers.
+          Paste it into any AI chatbot (ChatGPT, Claude, Gemini) along with a photo or description of what you want to add.
         </p>
       </div>
 
@@ -99,10 +99,20 @@ export default function PromptStep({ onNext, onBack }) {
         <ol style={{ paddingLeft: 18, margin: 0 }}>
           <li style={{ marginBottom: 4 }}>Open ChatGPT, Claude, or Gemini</li>
           <li style={{ marginBottom: 4 }}>Paste this prompt</li>
-          <li style={{ marginBottom: 4 }}>Attach a photo of your discharge papers</li>
+          <li style={{ marginBottom: 4 }}>Attach a photo or type what you want to add</li>
           <li style={{ marginBottom: 4 }}>Send the message and wait for the JSON response</li>
           <li>Come back here and paste the result</li>
         </ol>
+      </div>
+
+      <div className="t-card" style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', background: 'var(--color-primary-light)' }}>
+        <div style={{ fontWeight: 800, marginBottom: 4 }}>Works with anything:</div>
+        <ul style={{ paddingLeft: 18, margin: 0 }}>
+          <li style={{ marginBottom: 2 }}>Photo of a prescription &rarr; adds medications</li>
+          <li style={{ marginBottom: 2 }}>Photo of the clinic whiteboard &rarr; adds today&apos;s weight</li>
+          <li style={{ marginBottom: 2 }}>Photo of a feeding plan update &rarr; adds as a note</li>
+          <li>&ldquo;We started tracking oxygen sats every 4 hours&rdquo; &rarr; adds a tracker</li>
+        </ul>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
