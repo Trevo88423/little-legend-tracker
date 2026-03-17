@@ -209,6 +209,31 @@ export default function SettingsView() {
 
         <div className="t-toggle-row">
           <div>
+            <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Feed Reminders</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              Get notified at scheduled feed times
+            </div>
+          </div>
+          <div
+            className={`t-toggle ${settings.feedAlarms ? 'on' : ''}`}
+            onClick={() => toggleSetting('feedAlarms')}
+          >
+            <div className="t-toggle-knob" />
+          </div>
+        </div>
+
+        {settings.feedAlarms && !data.feedSchedule && (
+          <div style={{
+            fontSize: '0.75rem', color: 'var(--color-text-muted)',
+            marginBottom: 12, padding: '8px 12px',
+            background: 'var(--color-bg)', borderRadius: 8
+          }}>
+            No feed schedule set yet. Go to the Feeding tab to create one.
+          </div>
+        )}
+
+        <div className="t-toggle-row">
+          <div>
             <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Sound Alerts</div>
             <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
               Play a sound with notifications

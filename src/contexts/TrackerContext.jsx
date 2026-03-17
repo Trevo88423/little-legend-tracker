@@ -14,6 +14,7 @@ export function TrackerProvider({ children }) {
     medications: [],
     medLog: {},
     feeds: [],
+    feedSchedule: null,
     weights: [],
     trackers: [],
     trackerLogs: [],
@@ -42,6 +43,7 @@ export function TrackerProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_log', filter: `family_id=eq.${familyId}` }, () => loadActivityLog())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tracker_logs', filter: `family_id=eq.${familyId}` }, () => loadTrackerLogs())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `family_id=eq.${familyId}` }, () => loadSettings())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'feed_schedules', filter: `family_id=eq.${familyId}` }, () => loadFeedSchedule())
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
@@ -53,7 +55,7 @@ export function TrackerProvider({ children }) {
     setLoading(true)
     try {
       await Promise.all([
-        loadMedications(), loadMedLogs(), loadFeeds(), loadWeights(),
+        loadMedications(), loadMedLogs(), loadFeeds(), loadFeedSchedule(), loadWeights(),
         loadNotes(), loadTrackers(), loadTrackerLogs(), loadSettings(), loadActivityLog(),
       ])
     } catch (err) {
@@ -96,6 +98,18 @@ export function TrackerProvider({ children }) {
         id: f.id, date: f.date, time: f.time, type: f.type,
         amount: Number(f.amount), notes: f.notes, loggedBy: f.logged_by
       }))
+    }))
+  }
+
+  async function loadFeedSchedule() {
+    const { data: row } = await supabase.from('feed_schedules').select('*')
+      .eq('family_id', familyId).eq('child_id', childId).maybeSingle()
+    setData(prev => ({
+      ...prev,
+      feedSchedule: row ? {
+        id: row.id, times: row.times || [], targetAmount: Number(row.target_amount) || 0,
+        feedType: row.feed_type || 'bottle'
+      } : null
     }))
   }
 
@@ -231,6 +245,40 @@ export function TrackerProvider({ children }) {
   async function deleteFeed(id) {
     setData(prev => ({ ...prev, feeds: prev.feeds.filter(f => f.id !== id) }))
     await supabase.from('feeds').delete().eq('id', id)
+  }
+
+  // ==================== FEED SCHEDULE ====================
+  async function saveFeedSchedule(scheduleData) {
+    const { times, targetAmount, feedType } = scheduleData
+    const existing = data.feedSchedule
+    const id = existing?.id || genId()
+    const local = { id, times: [...times].sort(), targetAmount, feedType: feedType || 'bottle' }
+    setData(prev => ({ ...prev, feedSchedule: local }))
+    await supabase.from('feed_schedules').upsert({
+      id, ...fq(), times: local.times, target_amount: targetAmount, feed_type: local.feedType
+    })
+    logActivity('feed', `${existing ? 'Updated' : 'Created'} feed schedule: ${times.length} feeds/day, ${targetAmount}mL target — ${loggerName}`)
+  }
+
+  async function deleteFeedSchedule() {
+    const id = data.feedSchedule?.id
+    if (!id) return
+    setData(prev => ({ ...prev, feedSchedule: null }))
+    await supabase.from('feed_schedules').delete().eq('id', id)
+    logActivity('feed', `Deleted feed schedule — ${loggerName}`)
+  }
+
+  function isFeedDone(scheduledTime) {
+    const feeds = getTodayFeeds()
+    return feeds.some(f => f.time === scheduledTime)
+  }
+
+  function getFeedScheduleStats() {
+    const schedule = data.feedSchedule
+    if (!schedule) return { total: 0, done: 0 }
+    const total = schedule.times.length
+    const done = schedule.times.filter(t => isFeedDone(t)).length
+    return { total, done }
   }
 
   // ==================== WEIGHT ====================
@@ -407,7 +455,7 @@ export function TrackerProvider({ children }) {
       // Med operations
       isMedGiven, toggleMed, resetMedsForDay, saveMedication, deleteMedication,
       // Feed operations
-      logFeed, deleteFeed,
+      logFeed, deleteFeed, saveFeedSchedule, deleteFeedSchedule, isFeedDone, getFeedScheduleStats,
       // Weight operations
       logWeight, deleteWeight,
       // Note operations
@@ -430,7 +478,7 @@ export function TrackerProvider({ children }) {
 
 const EMPTY_TRACKER = {
   loading: true,
-  data: { medications: [], medLog: {}, feeds: [], weights: [], trackers: [], trackerLogs: [], notes: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [] },
+  data: { medications: [], medLog: {}, feeds: [], feedSchedule: null, weights: [], trackers: [], trackerLogs: [], notes: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [] },
   loggerName: '',
   isMedGiven: () => false,
   toggleSetting: () => {},
@@ -440,6 +488,10 @@ const EMPTY_TRACKER = {
   unlogMed: async () => {},
   addFeed: async () => {},
   deleteFeed: async () => {},
+  saveFeedSchedule: async () => {},
+  deleteFeedSchedule: async () => {},
+  isFeedDone: () => false,
+  getFeedScheduleStats: () => ({ total: 0, done: 0 }),
   addWeight: async () => {},
   addNote: async () => {},
   deleteNote: async () => {},

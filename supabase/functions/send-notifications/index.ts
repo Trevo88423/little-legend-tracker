@@ -34,6 +34,16 @@ interface Medication {
 
 interface Settings {
   med_alarms: boolean;
+  feed_alarms: boolean;
+  family_id: string;
+  child_id: string;
+}
+
+interface FeedSchedule {
+  id: string;
+  times: string[];
+  target_amount: number | null;
+  feed_type: string;
   family_id: string;
   child_id: string;
 }
@@ -86,22 +96,13 @@ serve(async (req: Request) => {
       // Check if med_alarms is enabled for this family+child
       const { data: settingsRows } = await supabase
         .from("settings")
-        .select("med_alarms")
+        .select("med_alarms, feed_alarms")
         .eq("family_id", familyId)
         .eq("child_id", childId)
         .limit(1);
 
       const settings = settingsRows?.[0] as Settings | undefined;
-      if (!settings?.med_alarms) continue;
-
-      // Get medications for this family+child
-      const { data: medications } = await supabase
-        .from("medications")
-        .select("id, name, dose, times")
-        .eq("family_id", familyId)
-        .eq("child_id", childId);
-
-      if (!medications || medications.length === 0) continue;
+      if (!settings?.med_alarms && !settings?.feed_alarms) continue;
 
       // Get current time in the device's timezone
       const nowInTz = new Date(
@@ -112,82 +113,158 @@ serve(async (req: Request) => {
       const nowMin = nowHours * 60 + nowMinutes;
       const todayStr = nowInTz.toISOString().split("T")[0]; // YYYY-MM-DD
 
-      // Get today's med_logs to check what's already given
-      // med_key format: "{medication_id}_{HH:MM}"
-      const { data: medLogs } = await supabase
-        .from("med_logs")
-        .select("med_key")
-        .eq("family_id", familyId)
-        .eq("child_id", childId)
-        .eq("date", todayStr);
+      // === MEDICATION NOTIFICATIONS ===
+      if (settings?.med_alarms) {
+        const { data: medications } = await supabase
+          .from("medications")
+          .select("id, name, dose, times")
+          .eq("family_id", familyId)
+          .eq("child_id", childId);
 
-      const givenSet = new Set(
-        (medLogs || []).map((log: { med_key: string }) => log.med_key)
-      );
+        if (medications && medications.length > 0) {
+          // Get today's med_logs to check what's already given
+          const { data: medLogs } = await supabase
+            .from("med_logs")
+            .select("med_key")
+            .eq("family_id", familyId)
+            .eq("child_id", childId)
+            .eq("date", todayStr);
 
-      for (const med of medications as Medication[]) {
-        for (const time of med.times) {
-          const [h, m] = time.split(":").map(Number);
-          const medMin = h * 60 + m;
+          const givenSet = new Set(
+            (medLogs || []).map((log: { med_key: string }) => log.med_key)
+          );
 
-          // Skip if already given
-          if (givenSet.has(`${med.id}_${time}`)) continue;
+          for (const med of medications as Medication[]) {
+            for (const time of med.times) {
+              const [h, m] = time.split(":").map(Number);
+              const medMin = h * 60 + m;
 
-          // Determine notification type
-          let notificationType: string | null = null;
-          let title = "";
-          let body = "";
+              if (givenSet.has(`${med.id}_${time}`)) continue;
 
-          if (nowMin === medMin - 5) {
-            notificationType = "early";
-            title = `💊 ${med.name} due in 5 minutes`;
-            body = `${med.dose || ""} at ${formatTime12(time)}`;
-          } else if (nowMin === medMin) {
-            notificationType = "due";
-            title = `⏰ ${med.name} is due now!`;
-            body = `${med.dose || ""} — tap to open tracker`;
-          } else if (nowMin === medMin + 15) {
-            notificationType = "late";
-            title = `⚠️ ${med.name} is 15 minutes overdue`;
-            body = `${med.dose || ""} was due at ${formatTime12(time)}`;
+              let notificationType: string | null = null;
+              let title = "";
+              let body = "";
+
+              if (nowMin === medMin - 5) {
+                notificationType = "early";
+                title = `💊 ${med.name} due in 5 minutes`;
+                body = `${med.dose || ""} at ${formatTime12(time)}`;
+              } else if (nowMin === medMin) {
+                notificationType = "due";
+                title = `⏰ ${med.name} is due now!`;
+                body = `${med.dose || ""} — tap to open tracker`;
+              } else if (nowMin === medMin + 15) {
+                notificationType = "late";
+                title = `⚠️ ${med.name} is 15 minutes overdue`;
+                body = `${med.dose || ""} was due at ${formatTime12(time)}`;
+              }
+
+              if (!notificationType) continue;
+
+              const { error: logError } = await supabase
+                .from("notification_log")
+                .insert({
+                  family_id: familyId,
+                  child_id: childId,
+                  medication_id: med.id,
+                  med_time: time,
+                  notification_type: notificationType,
+                  notification_date: todayStr,
+                });
+
+              if (logError) continue;
+
+              const tag = `med-${notificationType}-${med.id}-${time}`;
+              const payload = JSON.stringify({ title, body, tag, data: { url: "/app/meds" } });
+
+              for (const sub of subs) {
+                try {
+                  await webpush.sendNotification(
+                    {
+                      endpoint: sub.endpoint,
+                      keys: { p256dh: sub.p256dh, auth: sub.auth },
+                    },
+                    payload
+                  );
+                  totalSent++;
+                } catch (err: unknown) {
+                  const pushErr = err as { statusCode?: number };
+                  if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
+                    expiredEndpoints.push(sub.endpoint);
+                  }
+                }
+              }
+            }
           }
+        }
+      }
 
-          if (!notificationType) continue;
+      // === FEED SCHEDULE NOTIFICATIONS ===
+      if (settings?.feed_alarms) {
+        const { data: feedScheduleRows } = await supabase
+          .from("feed_schedules")
+          .select("id, times, target_amount, feed_type")
+          .eq("family_id", familyId)
+          .eq("child_id", childId)
+          .limit(1);
 
-          // Deduplicate via notification_log
-          const { error: logError } = await supabase
-            .from("notification_log")
-            .insert({
-              family_id: familyId,
-              child_id: childId,
-              medication_id: med.id,
-              med_time: time,
-              notification_type: notificationType,
-              notification_date: todayStr,
-            });
+        const feedSchedule = feedScheduleRows?.[0] as FeedSchedule | undefined;
 
-          // Unique constraint violation means already sent
-          if (logError) continue;
+        if (feedSchedule && feedSchedule.times && feedSchedule.times.length > 0) {
+          // Get today's feeds to check completion
+          const { data: todayFeeds } = await supabase
+            .from("feeds")
+            .select("time")
+            .eq("family_id", familyId)
+            .eq("child_id", childId)
+            .eq("date", todayStr);
 
-          // Send push to all subscribed devices for this family+child
-          const tag = `med-${notificationType}-${med.id}-${time}`;
-          const payload = JSON.stringify({ title, body, tag, data: { url: "/app/meds" } });
+          const fedTimes = new Set(
+            (todayFeeds || []).map((f: { time: string }) => f.time)
+          );
 
-          for (const sub of subs) {
-            try {
-              await webpush.sendNotification(
-                {
-                  endpoint: sub.endpoint,
-                  keys: { p256dh: sub.p256dh, auth: sub.auth },
-                },
-                payload
-              );
-              totalSent++;
-            } catch (err: unknown) {
-              const pushErr = err as { statusCode?: number };
-              // 410 Gone or 404 = subscription expired
-              if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
-                expiredEndpoints.push(sub.endpoint);
+          for (const time of feedSchedule.times) {
+            const [h, m] = time.split(":").map(Number);
+            const feedMin = h * 60 + m;
+
+            if (nowMin !== feedMin) continue;
+            if (fedTimes.has(time)) continue;
+
+            // Dedup via notification_log
+            const { error: logError } = await supabase
+              .from("notification_log")
+              .insert({
+                family_id: familyId,
+                child_id: childId,
+                medication_id: "feed-schedule",
+                med_time: time,
+                notification_type: "feed-due",
+                notification_date: todayStr,
+              });
+
+            if (logError) continue;
+
+            const target = feedSchedule.target_amount;
+            const title = `🍼 Feed due now!`;
+            const body = `${target ? target + " mL " : ""}${formatTime12(time)} — tap to log`;
+            const tag = `feed-due-${time}`;
+            const payload = JSON.stringify({ title, body, tag, data: { url: "/app/feeding" } });
+
+            for (const sub of subs) {
+              try {
+                await webpush.sendNotification(
+                  {
+                    endpoint: sub.endpoint,
+                    keys: { p256dh: sub.p256dh, auth: sub.auth },
+                  },
+                  payload
+                );
+                totalSent++;
+              } catch (err: unknown) {
+                const pushErr = err as { statusCode?: number };
+                if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
+                  expiredEndpoints.push(sub.endpoint);
+                }
               }
             }
           }

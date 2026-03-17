@@ -3,7 +3,7 @@ import { formatTime12 } from '../lib/dateUtils'
 import { useTracker } from '../contexts/TrackerContext'
 
 export function useNotifications() {
-  const { data, isMedGiven } = useTracker()
+  const { data, isMedGiven, isFeedDone } = useTracker()
   const alarmRef = useRef(null)
   const sentRef = useRef(new Set())
 
@@ -96,6 +96,38 @@ export function useNotifications() {
       try { new Notification(title, { body, tag, requireInteraction: true }) } catch {}
     }
   }
+
+  // Feed schedule notifications
+  useEffect(() => {
+    if (!data.settings.feedAlarms || !data.feedSchedule) return
+
+    function checkFeeds() {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return
+      const now = new Date()
+      const nowMin = now.getHours() * 60 + now.getMinutes()
+
+      data.feedSchedule.times.forEach(t => {
+        const [h, m] = t.split(':').map(Number)
+        const feedMin = h * 60 + m
+
+        const dueKey = `feed-due-${t}`
+        if (nowMin === feedMin && !sentRef.current.has(dueKey) && !isFeedDone(t)) {
+          const target = data.feedSchedule.targetAmount
+          sendNotification(
+            `\uD83C\uDF7C Feed due now!`,
+            `${target ? target + ' mL ' : ''}${formatTime12(t)} — tap to log`,
+            `feed-due-${t}`
+          )
+          sentRef.current.add(dueKey)
+          playSound()
+        }
+      })
+    }
+
+    checkFeeds()
+    const interval = setInterval(checkFeeds, 30000)
+    return () => clearInterval(interval)
+  }, [data.settings.feedAlarms, data.feedSchedule])
 
   function playSound() {
     if (!data.settings.soundAlerts) return

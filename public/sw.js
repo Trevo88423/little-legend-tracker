@@ -97,16 +97,19 @@ self.addEventListener('notificationclick', event => {
 
   if (event.action === 'dismiss') return
 
+  const targetUrl = event.notification.data?.url || '/app/meds'
+
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
       // Focus existing app window if found
       for (const client of clients) {
         if (client.url.includes('/app/') && 'focus' in client) {
+          client.navigate(targetUrl)
           return client.focus()
         }
       }
-      // Otherwise open the meds page
-      return self.clients.openWindow('/app/meds')
+      // Otherwise open the target page
+      return self.clients.openWindow(targetUrl)
     })
   )
 })
