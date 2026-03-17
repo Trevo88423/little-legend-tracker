@@ -50,19 +50,13 @@ interface FeedSchedule {
 
 serve(async (req: Request) => {
   try {
-    // Authenticate: only allow service_role key
+    // Authenticate: only allow requests with the secret API key
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response("Unauthorized", { status: 401 });
     }
-    // Verify the token is a service_role JWT by decoding the payload
     const token = authHeader.split(" ")[1];
-    try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      if (payload.role !== "service_role") {
-        return new Response("Unauthorized", { status: 401 });
-      }
-    } catch {
+    if (token !== SUPABASE_SERVICE_ROLE_KEY) {
       return new Response("Unauthorized", { status: 401 });
     }
 
