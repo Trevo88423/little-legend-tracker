@@ -28,6 +28,11 @@ const PROMPT_TEXT = `I'm using a baby medication tracker app. Please read the at
       "value": 3.2
     }
   ],
+  "feed_schedule": {
+    "times": ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
+    "target_amount": 90,
+    "feed_type": "bottle|tube|breast"
+  },
   "feed_plan": {
     "type": "bottle|tube|breast",
     "amount": "Amount per feed as written (e.g. 120mL, 90-120mL)",
@@ -42,6 +47,9 @@ Rules:
 - Category must be one of: heart, diuretic, stomach, blood, other
 - Tracker type must be one of: number, counter, note
 - Feed type must be one of: bottle, tube, breast
+- feed_schedule.times must be an array of HH:MM strings for each scheduled feed
+- feed_schedule.target_amount is the target mL per feed as a number
+- If the source mentions a feeding schedule with specific times, use feed_schedule. If it only describes a general plan, use feed_plan
 - Weight value in kg
 - Include ALL medications mentioned
 - If unsure about a category, use "other"
@@ -50,7 +58,7 @@ Rules:
 - Output valid JSON only, no markdown fences
 
 Example output for a single medication:
-{"baby_name":"Emma","medications":[{"name":"Furosemide","dose":"2mg (0.2mL)","purpose":"Removes extra fluid to help the heart","category":"diuretic","times":["08:00","20:00"],"instructions":"Give on an empty stomach"}],"trackers":[],"weights":[],"feed_plan":null,"notes":[]}`
+{"baby_name":"Emma","medications":[{"name":"Furosemide","dose":"2mg (0.2mL)","purpose":"Removes extra fluid to help the heart","category":"diuretic","times":["08:00","20:00"],"instructions":"Give on an empty stomach"}],"trackers":[],"weights":[],"feed_schedule":{"times":["06:00","09:00","12:00","15:00","18:00","21:00"],"target_amount":90,"feed_type":"bottle"},"feed_plan":null,"notes":[]}`
 
 export default function PromptStep({ onNext, onBack }) {
   const [copied, setCopied] = useState(false)
@@ -111,7 +119,7 @@ export default function PromptStep({ onNext, onBack }) {
           <li style={{ marginBottom: 2 }}>Discharge papers or hospital med list &rarr; bulk import all medications</li>
           <li style={{ marginBottom: 2 }}>Photo of a new prescription &rarr; adds the medication</li>
           <li style={{ marginBottom: 2 }}>Photo of the clinic whiteboard &rarr; adds today&apos;s weight</li>
-          <li style={{ marginBottom: 2 }}>Photo of a feeding plan update &rarr; adds as a note</li>
+          <li style={{ marginBottom: 2 }}>Photo of a feeding plan update &rarr; sets up feed schedule with reminders</li>
           <li>&ldquo;We started tracking oxygen sats every 4 hours&rdquo; &rarr; adds a tracker</li>
         </ul>
       </div>

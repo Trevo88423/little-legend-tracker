@@ -5,12 +5,13 @@ import { catIcons, catClasses } from '../../lib/constants'
 import { formatTime12 } from '../../lib/dateUtils'
 
 export default function PreviewStep({ data, onBack }) {
-  const { saveMedication, addTracker, logWeight, addNote } = useTracker()
+  const { saveMedication, addTracker, logWeight, addNote, saveFeedSchedule } = useTracker()
   const navigate = useNavigate()
 
   const [meds, setMeds] = useState(data.medications)
   const [trackers, setTrackers] = useState(data.trackers)
   const [weights, setWeights] = useState(data.weights)
+  const [feedSchedule, setFeedSchedule] = useState(data.feedSchedule)
   const [feedPlan, setFeedPlan] = useState(data.feedPlan)
   const [notes, setNotes] = useState(data.notes)
   const [importing, setImporting] = useState(false)
@@ -23,11 +24,11 @@ export default function PreviewStep({ data, onBack }) {
   function removeNote(i) { setNotes(prev => prev.filter((_, idx) => idx !== i)) }
   function removeFeedPlan() { setFeedPlan(null) }
 
-  const totalItems = meds.length + trackers.length + weights.length + notes.length + (feedPlan ? 1 : 0)
+  const totalItems = meds.length + trackers.length + weights.length + notes.length + (feedSchedule ? 1 : 0) + (feedPlan ? 1 : 0)
 
   async function handleImport() {
     setImporting(true)
-    const counts = { meds: 0, trackers: 0, weights: 0, notes: 0 }
+    const counts = { meds: 0, trackers: 0, weights: 0, feedSchedule: 0, notes: 0 }
 
     try {
       // Import medications
@@ -54,6 +55,12 @@ export default function PreviewStep({ data, onBack }) {
       for (const w of weights) {
         await logWeight(w.date, w.value)
         counts.weights++
+      }
+
+      // Import feed schedule
+      if (feedSchedule) {
+        await saveFeedSchedule(feedSchedule)
+        counts.feedSchedule = 1
       }
 
       // Import feed plan as note
@@ -87,6 +94,7 @@ export default function PreviewStep({ data, onBack }) {
           {importResult.meds > 0 && <div>{importResult.meds} medication{importResult.meds !== 1 ? 's' : ''} added</div>}
           {importResult.trackers > 0 && <div>{importResult.trackers} tracker{importResult.trackers !== 1 ? 's' : ''} added</div>}
           {importResult.weights > 0 && <div>{importResult.weights} weight{importResult.weights !== 1 ? 's' : ''} logged</div>}
+          {importResult.feedSchedule > 0 && <div>Feed schedule imported</div>}
           {importResult.notes > 0 && <div>{importResult.notes} note{importResult.notes !== 1 ? 's' : ''} added</div>}
         </div>
         <button className="t-btn t-btn-primary" onClick={() => navigate('/app/dashboard')}>
@@ -183,6 +191,24 @@ export default function PreviewStep({ data, onBack }) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Feed Schedule */}
+      {feedSchedule && (
+        <div className="t-card t-preview-section">
+          <div className="t-card-title">Feed Schedule</div>
+          <div style={{ fontSize: '0.85rem', marginBottom: 4 }}>
+            <strong>Target:</strong> {feedSchedule.targetAmount ? `${feedSchedule.targetAmount} mL` : 'Not set'}
+            {' '}&middot;{' '}
+            <strong>Type:</strong> {feedSchedule.feedType}
+          </div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>
+            <strong>Times:</strong> {feedSchedule.times.map(t => formatTime12(t)).join(', ')}
+          </div>
+          <button className="t-delete-btn" onClick={() => setFeedSchedule(null)} title="Remove" style={{ marginTop: 4 }}>
+            x Remove
+          </button>
         </div>
       )}
 

@@ -66,6 +66,7 @@ export function validateImport(rawText) {
     medications: [],
     trackers: [],
     weights: [],
+    feedSchedule: null,
     feedPlan: null,
     notes: []
   }
@@ -140,6 +141,29 @@ export function validateImport(rawText) {
     })
   }
 
+  // Validate feed schedule
+  const feedSchedule = parsed.feed_schedule || parsed.feedSchedule || null
+  if (feedSchedule && typeof feedSchedule === 'object') {
+    const times = feedSchedule.times || []
+    if (Array.isArray(times) && times.length > 0) {
+      const validTimes = []
+      times.forEach(t => {
+        if (validateTime(t)) {
+          validTimes.push(t)
+        } else {
+          errors.push(`Feed schedule: invalid time "${t}" (use HH:MM format)`)
+        }
+      })
+      if (validTimes.length > 0) {
+        result.feedSchedule = {
+          times: validTimes,
+          targetAmount: parseFloat(feedSchedule.target_amount || feedSchedule.targetAmount) || 0,
+          feedType: normalizeFeedType(feedSchedule.feed_type || feedSchedule.feedType)
+        }
+      }
+    }
+  }
+
   // Feed plan as note
   const feedPlan = parsed.feed_plan || parsed.feedPlan || null
   if (feedPlan && typeof feedPlan === 'object') {
@@ -170,7 +194,7 @@ export function validateImport(rawText) {
   }
 
   const hasData = result.medications.length > 0 || result.trackers.length > 0 ||
-    result.weights.length > 0 || result.feedPlan || result.notes.length > 0
+    result.weights.length > 0 || result.feedSchedule || result.feedPlan || result.notes.length > 0
 
   if (!hasData && errors.length === 0) {
     errors.push('No medications, trackers, weights, or notes found in the JSON. Make sure the AI formatted its response correctly.')
