@@ -188,6 +188,22 @@ export default function SettingsView() {
                 To get background notifications on iOS, add this app to your Home Screen first (Share → Add to Home Screen).
               </div>
             )}
+
+            {pushSupported && pushEnabled && (
+              <div style={{
+                fontSize: '0.72rem', color: 'var(--color-text-muted)',
+                marginBottom: 12, padding: '8px 12px',
+                background: 'var(--color-bg)', borderRadius: 8, lineHeight: 1.5
+              }}>
+                <strong>Not getting notifications?</strong>
+                <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                  <li>Check your browser allows notifications for this site</li>
+                  <li>On Android: Settings → Apps → Chrome → Notifications → ensure enabled</li>
+                  <li>Disable battery saver / restricted mode for your browser</li>
+                  <li>Try the "Test Notification" button above to verify</li>
+                </ul>
+              </div>
+            )}
           </>
         )}
 
