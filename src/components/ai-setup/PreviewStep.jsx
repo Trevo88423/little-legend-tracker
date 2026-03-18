@@ -5,7 +5,8 @@ import { catIcons, catClasses } from '../../lib/constants'
 import { formatTime12 } from '../../lib/dateUtils'
 
 export default function PreviewStep({ data, onBack }) {
-  const { saveMedication, addTracker, logWeight, addNote, saveFeedSchedule } = useTracker()
+  const { data: trackerData, saveMedication, addTracker, logWeight, addNote, saveFeedSchedule } = useTracker()
+  const existingMedIds = new Set(trackerData.medications.map(m => m.id))
   const navigate = useNavigate()
 
   const [meds, setMeds] = useState(data.medications)
@@ -28,21 +29,33 @@ export default function PreviewStep({ data, onBack }) {
 
   async function handleImport() {
     setImporting(true)
-    const counts = { meds: 0, trackers: 0, weights: 0, feedSchedule: 0, notes: 0 }
+    const counts = { medsAdded: 0, medsUpdated: 0, trackers: 0, weights: 0, feedSchedule: 0, notes: 0 }
 
     try {
       // Import medications
       for (const med of meds) {
+        const isUpdate = med.id && existingMedIds.has(med.id)
         await saveMedication({
-          id: null,
+          id: isUpdate ? med.id : null,
           name: med.name,
           dose: med.dose,
           purpose: med.purpose,
           category: med.category,
           times: med.times,
-          instructions: med.instructions
+          instructions: med.instructions,
+          doseAmount: med.doseAmount,
+          supplyUnit: med.supplyUnit,
+          supplyRemaining: med.supplyRemaining,
+          supplyTotal: med.supplyTotal,
+          refillsRemaining: med.refillsRemaining,
+          prescriptionSource: med.prescriptionSource,
+          expiryDate: med.expiryDate,
+          openedDate: med.openedDate,
+          daysAfterOpening: med.daysAfterOpening,
+          lowSupplyDays: med.lowSupplyDays,
         })
-        counts.meds++
+        if (isUpdate) counts.medsUpdated++
+        else counts.medsAdded++
       }
 
       // Import trackers
@@ -91,7 +104,8 @@ export default function PreviewStep({ data, onBack }) {
         <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>+</div>
         <div style={{ fontWeight: 800, fontSize: '1.1rem', marginBottom: 8 }}>Import Complete!</div>
         <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: 16 }}>
-          {importResult.meds > 0 && <div>{importResult.meds} medication{importResult.meds !== 1 ? 's' : ''} added</div>}
+          {importResult.medsAdded > 0 && <div>{importResult.medsAdded} medication{importResult.medsAdded !== 1 ? 's' : ''} added</div>}
+          {importResult.medsUpdated > 0 && <div>{importResult.medsUpdated} medication{importResult.medsUpdated !== 1 ? 's' : ''} updated</div>}
           {importResult.trackers > 0 && <div>{importResult.trackers} tracker{importResult.trackers !== 1 ? 's' : ''} added</div>}
           {importResult.weights > 0 && <div>{importResult.weights} weight{importResult.weights !== 1 ? 's' : ''} logged</div>}
           {importResult.feedSchedule > 0 && <div>Feed schedule imported</div>}
@@ -124,14 +138,21 @@ export default function PreviewStep({ data, onBack }) {
       )}
 
       {/* Medications */}
-      {meds.length > 0 && (
+      {meds.length > 0 && (() => {
+        const updates = meds.filter(m => m.id && existingMedIds.has(m.id)).length
+        const adds = meds.length - updates
+        const label = [adds && `${adds} new`, updates && `${updates} update${updates !== 1 ? 's' : ''}`].filter(Boolean).join(', ')
+        return (
         <div className="t-card t-preview-section">
-          <div className="t-card-title">Medications ({meds.length})</div>
-          {meds.map((med, i) => (
+          <div className="t-card-title">Medications ({label})</div>
+          {meds.map((med, i) => {
+            const isUpdate = med.id && existingMedIds.has(med.id)
+            return (
             <div className={`t-med-item ${catClasses[med.category] || 'med-other'}`} key={i} style={{ cursor: 'default' }}>
               <div className="t-med-info">
                 <div className="t-med-name">
                   {catIcons[med.category] || catIcons.other} {med.name}
+                  {isUpdate && <span style={{ fontSize: '0.6rem', fontWeight: 800, background: 'var(--color-primary)', color: 'white', padding: '1px 5px', borderRadius: 4, marginLeft: 6, verticalAlign: 'middle' }}>UPDATE</span>}
                 </div>
                 {med.dose && <div className="t-med-dose">{med.dose}</div>}
                 {med.purpose && <div className="t-med-detail">{med.purpose}</div>}
@@ -141,14 +162,24 @@ export default function PreviewStep({ data, onBack }) {
                     : 'PRN / As needed'}
                 </div>
                 {med.instructions && <div className="t-med-detail">{med.instructions}</div>}
+                {(med.supplyTotal || med.expiryDate || med.prescriptionSource || med.refillsRemaining != null) && (
+                  <div className="t-med-detail" style={{ marginTop: 4, color: 'var(--color-text-secondary)' }}>
+                    {med.supplyTotal && <span>{med.supplyRemaining != null ? med.supplyRemaining : med.supplyTotal}/{med.supplyTotal}{med.supplyUnit || 'mL'}</span>}
+                    {med.expiryDate && <span>{med.supplyTotal ? ' \u00B7 ' : ''}Exp: {med.expiryDate}</span>}
+                    {med.prescriptionSource && <span>{(med.supplyTotal || med.expiryDate) ? ' \u00B7 ' : ''}{med.prescriptionSource}</span>}
+                    {med.refillsRemaining != null && <span>{(med.supplyTotal || med.expiryDate || med.prescriptionSource) ? ' \u00B7 ' : ''}{med.refillsRemaining} refills</span>}
+                  </div>
+                )}
               </div>
               <button className="t-delete-btn" onClick={() => removeMed(i)} title="Remove">
                 x
               </button>
             </div>
-          ))}
+            )
+          })}
         </div>
-      )}
+        )
+      })()}
 
       {/* Trackers */}
       {trackers.length > 0 && (

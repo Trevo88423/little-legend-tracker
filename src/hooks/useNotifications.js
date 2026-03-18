@@ -3,7 +3,7 @@ import { formatTime12 } from '../lib/dateUtils'
 import { useTracker } from '../contexts/TrackerContext'
 
 export function useNotifications() {
-  const { data, isMedGiven, isFeedDone } = useTracker()
+  const { data, isMedGiven, isFeedDone, getMedSupplyInfo } = useTracker()
   const alarmRef = useRef(null)
   const sentRef = useRef(new Set())
 
@@ -128,6 +128,54 @@ export function useNotifications() {
     const interval = setInterval(checkFeeds, 30000)
     return () => clearInterval(interval)
   }, [data.settings.feedAlarms, data.feedSchedule, isFeedDone])
+
+  // Supply and expiry notifications (once per day)
+  useEffect(() => {
+    if (!data.settings.medAlarms || data.medications.length === 0) return
+
+    function checkSupply() {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return
+
+      data.medications.forEach(med => {
+        const info = getMedSupplyInfo(med.id)
+        if (!info) return
+
+        const lowKey = `supply-low-${med.id}`
+        if (info.isLow && !sentRef.current.has(lowKey)) {
+          sendNotification(
+            `\u26A0\uFE0F Low supply: ${med.name}`,
+            `${Math.round(info.daysRemaining)} days remaining (${info.supplyRemaining}${info.supplyUnit})`,
+            `supply-low-${med.id}`
+          )
+          sentRef.current.add(lowKey)
+        }
+
+        const expKey = `supply-exp-${med.id}`
+        if (info.isExpiringSoon && !info.isExpired && !sentRef.current.has(expKey)) {
+          sendNotification(
+            `\u26A0\uFE0F Expiring soon: ${med.name}`,
+            `Expires in ${info.daysUntilExpiry} days`,
+            `supply-exp-${med.id}`
+          )
+          sentRef.current.add(expKey)
+        }
+
+        const expiredKey = `supply-expired-${med.id}`
+        if (info.isExpired && !sentRef.current.has(expiredKey)) {
+          sendNotification(
+            `\u274C Expired: ${med.name}`,
+            'This medication has expired and should not be used',
+            `supply-expired-${med.id}`
+          )
+          sentRef.current.add(expiredKey)
+        }
+      })
+    }
+
+    checkSupply()
+    const interval = setInterval(checkSupply, 30000)
+    return () => clearInterval(interval)
+  }, [data.settings.medAlarms, data.medications, getMedSupplyInfo])
 
   function playSound() {
     if (!data.settings.soundAlerts) return

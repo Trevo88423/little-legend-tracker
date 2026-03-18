@@ -1,7 +1,9 @@
 const VALID_CATEGORIES = ['heart', 'diuretic', 'stomach', 'blood', 'other']
 const VALID_TRACKER_TYPES = ['number', 'counter', 'note']
 const VALID_FEED_TYPES = ['bottle', 'tube', 'breast']
+const VALID_SUPPLY_UNITS = ['mL', 'tablets', 'capsules', 'doses', 'puffs']
 const TIME_RE = /^\d{2}:\d{2}$/
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 function stripFences(text) {
   let s = text.trim()
@@ -35,6 +37,32 @@ function normalizeFeedType(type) {
   if (!type) return 'bottle'
   const lower = type.toLowerCase().trim()
   return VALID_FEED_TYPES.includes(lower) ? lower : 'bottle'
+}
+
+function normalizeSupplyUnit(unit) {
+  if (!unit) return 'mL'
+  const lower = unit.toLowerCase().trim()
+  const map = { 'ml': 'mL', 'tablet': 'tablets', 'capsule': 'capsules', 'dose': 'doses', 'puff': 'puffs' }
+  if (map[lower]) return map[lower]
+  return VALID_SUPPLY_UNITS.find(u => u.toLowerCase() === lower) || 'mL'
+}
+
+function optionalPositiveNumber(val) {
+  if (val == null || val === '') return null
+  const n = Number(val)
+  return !isNaN(n) && n >= 0 ? n : null
+}
+
+function optionalPositiveInt(val) {
+  if (val == null || val === '') return null
+  const n = parseInt(val, 10)
+  return !isNaN(n) && n >= 0 ? n : null
+}
+
+function optionalDate(val) {
+  if (!val || typeof val !== 'string') return null
+  const trimmed = val.trim()
+  return DATE_RE.test(trimmed) ? trimmed : null
 }
 
 export function validateImport(rawText) {
@@ -97,13 +125,28 @@ export function validateImport(rawText) {
       })
       if (times.length > 0 && validTimes.length === 0) return
 
+      const doseAmount = optionalPositiveNumber(med.dose_amount || med.doseAmount)
+      const supplyRemaining = optionalPositiveNumber(med.supply_remaining || med.supplyRemaining)
+      const supplyTotal = optionalPositiveNumber(med.supply_total || med.supplyTotal)
+
       result.medications.push({
+        id: med.id || null,
         name: med.name.trim(),
         dose: (med.dose || '').trim(),
         purpose: (med.purpose || '').trim(),
         category: normalizeCategory(med.category),
         times: validTimes,
-        instructions: (med.instructions || '').trim()
+        instructions: (med.instructions || '').trim(),
+        doseAmount,
+        supplyUnit: normalizeSupplyUnit(med.supply_unit || med.supplyUnit),
+        supplyRemaining: supplyRemaining != null ? supplyRemaining : supplyTotal,
+        supplyTotal,
+        refillsRemaining: optionalPositiveInt(med.refills_remaining || med.refillsRemaining),
+        prescriptionSource: (med.prescription_source || med.prescriptionSource || '').trim() || null,
+        expiryDate: optionalDate(med.expiry_date || med.expiryDate),
+        openedDate: optionalDate(med.opened_date || med.openedDate),
+        daysAfterOpening: optionalPositiveInt(med.days_after_opening || med.daysAfterOpening),
+        lowSupplyDays: optionalPositiveInt(med.low_supply_days || med.lowSupplyDays) ?? 3,
       })
     })
   }

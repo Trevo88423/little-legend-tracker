@@ -628,6 +628,96 @@
   margin-bottom: 8px;
 }
 
+/* Supply Bar */
+.t-supply-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.t-supply-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--color-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.t-supply-bar-fill {
+  height: 100%;
+  background: var(--color-green);
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.t-supply-bar-fill.mid { background: var(--color-amber); }
+.t-supply-bar-fill.low { background: var(--color-red); }
+
+.t-supply-text {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.t-supply-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  text-transform: uppercase;
+}
+
+.t-supply-expired {
+  background: var(--color-red);
+  color: white;
+}
+
+.t-supply-expiring {
+  background: var(--color-amber);
+  color: white;
+}
+
+/* Supply Alert Card */
+.t-supply-alert {
+  background: var(--color-card);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-red);
+  box-shadow: var(--shadow-sm);
+}
+
+.t-supply-alert-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--color-red);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.t-supply-alert-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.82rem;
+}
+
+.t-supply-alert-name { font-weight: 700; }
+
+.t-supply-alert-status {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-red);
+}
+
 /* Responsive */
 @media (max-width: 400px) {
   .t-overview-grid { gap: 8px; }

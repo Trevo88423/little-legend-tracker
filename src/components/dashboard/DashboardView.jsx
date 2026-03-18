@@ -7,7 +7,7 @@ import { catIcons, dotColors, activityIcons } from '../../lib/constants'
 export default function DashboardView() {
   const {
     data, getNextMed, getMedStats, getTodayFeeds, getLatestWeight,
-    isMedGiven, getTimeSlots
+    isMedGiven, getTimeSlots, getMedsNeedingAttention
   } = useTracker()
 
   const navigate = useNavigate()
@@ -26,6 +26,7 @@ export default function DashboardView() {
   const showNotifBanner = notifPermission !== 'granted' && !notifDismissed && data.settings.medAlarms
 
   const recentActivity = data.activityLog.slice(0, 5)
+  const medsAttention = getMedsNeedingAttention()
 
   // Build today's medication timeline
   const sortedTimes = Object.keys(timeSlots).sort()
@@ -110,6 +111,23 @@ export default function DashboardView() {
             }}
             aria-label="Dismiss"
           >✕</button>
+        </div>
+      )}
+
+      {medsAttention.length > 0 && (
+        <div className="t-supply-alert">
+          <div className="t-supply-alert-title">Medication Supply Alert</div>
+          {medsAttention.map(({ med, info }) => (
+            <div className="t-supply-alert-item" key={med.id}>
+              <span className="t-supply-alert-name">{catIcons[med.category] || '\uD83D\uDC8A'} {med.name}</span>
+              <span className="t-supply-alert-status">
+                {info.isExpired && 'Expired'}
+                {info.isExpiringSoon && !info.isExpired && `Expires in ${info.daysUntilExpiry}d`}
+                {info.isLow && !info.isExpired && !info.isExpiringSoon && `${Math.round(info.daysRemaining)}d supply left`}
+                {info.isLow && (info.isExpired || info.isExpiringSoon) && ` · ${Math.round(info.daysRemaining)}d supply`}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 

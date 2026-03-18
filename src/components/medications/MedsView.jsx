@@ -3,7 +3,7 @@ import { today, formatTime12, formatDate } from '../../lib/dateUtils'
 import { catClasses, catIcons, dotColors } from '../../lib/constants'
 
 export default function MedsView() {
-  const { getTimeSlots, isMedGiven, toggleMed, resetMedsForDay } = useTracker()
+  const { getTimeSlots, isMedGiven, toggleMed, resetMedsForDay, getMedSupplyInfo } = useTracker()
 
   const timeSlots = getTimeSlots()
   const sortedTimes = Object.keys(timeSlots).sort()
@@ -47,6 +47,7 @@ export default function MedsView() {
             {meds.map(med => {
               const given = isMedGiven(med.id, time)
               const givenInfo = given || null
+              const supply = getMedSupplyInfo(med.id)
 
               return (
                 <div
@@ -60,6 +61,8 @@ export default function MedsView() {
                   <div className="t-med-info">
                     <div className="t-med-name">
                       {catIcons[med.category] || '💊'} {med.name}
+                      {supply?.isExpired && <span className="t-supply-badge t-supply-expired">EXPIRED</span>}
+                      {supply?.isExpiringSoon && !supply.isExpired && <span className="t-supply-badge t-supply-expiring">EXP SOON</span>}
                     </div>
                     <div className="t-med-dose">{med.dose}</div>
                     {med.purpose && (
@@ -72,6 +75,20 @@ export default function MedsView() {
                       <div className="t-med-given-time">
                         Given at {formatTime12(givenInfo.givenAt)}
                         {givenInfo.givenBy ? ` by ${givenInfo.givenBy}` : ''}
+                      </div>
+                    )}
+                    {supply?.hasSupply && (
+                      <div className="t-supply-bar-wrap">
+                        <div className="t-supply-bar">
+                          <div
+                            className={`t-supply-bar-fill ${supply.isLow ? 'low' : supply.supplyRemaining / supply.supplyTotal <= 0.5 ? 'mid' : ''}`}
+                            style={{ width: `${Math.min(100, (supply.supplyRemaining / supply.supplyTotal) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="t-supply-text">
+                          {supply.supplyRemaining}{supply.supplyUnit}
+                          {supply.daysRemaining != null ? ` (${Math.round(supply.daysRemaining)}d)` : ''}
+                        </span>
                       </div>
                     )}
                   </div>

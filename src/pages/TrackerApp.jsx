@@ -1,9 +1,132 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useFamily } from '../contexts/FamilyContext'
 import { useTracker } from '../contexts/TrackerContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useNotifications } from '../hooks/useNotifications'
+import { supabase } from '../lib/supabase'
 import '../styles/tracker.css'
+
+function SetupFallback({ setupError, navigate }) {
+  const hasPendingJoin = !!localStorage.getItem('pendingJoin')
+  const hasPendingSignup = !!localStorage.getItem('pendingSignup')
+  const hasPending = hasPendingJoin || hasPendingSignup
+
+  const [showForm, setShowForm] = useState(false)
+  const [displayName, setDisplayName] = useState('')
+  const [childName, setChildName] = useState('')
+  const [childDob, setChildDob] = useState('')
+  const [pin, setPin] = useState('')
+  const [formError, setFormError] = useState('')
+  const [formLoading, setFormLoading] = useState(false)
+
+  async function handleCompleteSetup(e) {
+    e.preventDefault()
+    if (!/^\d{6,8}$/.test(pin)) { setFormError('PIN must be 6-8 digits'); return }
+    setFormLoading(true)
+    setFormError('')
+    try {
+      const { error } = await supabase.rpc('complete_signup', {
+        p_family_name: childName.trim(),
+        p_pin_input: pin,
+        p_display_name: displayName.trim(),
+        p_child_name: childName.trim(),
+        p_child_dob: childDob || null,
+      })
+      if (error) throw error
+      localStorage.removeItem('pendingSignup')
+      window.location.reload()
+    } catch (err) {
+      setFormError(err.message || 'Setup failed. Please try again.')
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  let title = 'No Child Found'
+  let message = 'You need to join a family or create an account to start tracking.'
+  if (setupError === 'signup') {
+    title = 'Setup Issue'
+    message = 'We had trouble finishing your account setup. You can complete it below, or try refreshing.'
+  } else if (setupError === 'join') {
+    title = 'Join Issue'
+    message = 'We couldn\'t complete joining the family. The child\'s name or PIN may be wrong. Please try again.'
+  } else if (hasPending) {
+    title = 'Almost There!'
+    message = 'Your request is being processed. If it doesn\'t complete automatically, try refreshing or complete setup below.'
+  }
+
+  if (showForm) {
+    return (
+      <div className="ll-auth-screen">
+        <div className="ll-auth-card">
+          <span className="auth-icon">&#128118;</span>
+          <h1>Complete Setup</h1>
+          <p className="auth-subtitle">Finish setting up your account</p>
+          <form className="ll-auth-form" onSubmit={handleCompleteSetup}>
+            <div className="form-group">
+              <label htmlFor="setup-name">Your Display Name</label>
+              <input id="setup-name" type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="e.g. Mum, Dad, Sarah" required />
+            </div>
+            <div className="form-group">
+              <label htmlFor="setup-child">Child's Name</label>
+              <input id="setup-child" type="text" value={childName} onChange={e => setChildName(e.target.value)} placeholder="Your little legend's name" required />
+            </div>
+            <div className="form-group">
+              <label htmlFor="setup-dob">Date of Birth (optional)</label>
+              <input id="setup-dob" type="date" value={childDob} onChange={e => setChildDob(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="setup-pin">Family PIN (6-8 digits)</label>
+              <input id="setup-pin" type="text" inputMode="numeric" pattern="\d{6,8}" value={pin}
+                onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Your partner uses this to join" required maxLength={8} />
+            </div>
+            <button type="submit" className="auth-submit-btn" disabled={formLoading}>
+              {formLoading ? 'Setting up...' : 'Complete Setup'}
+            </button>
+            {formError && <p className="auth-error-msg">{formError}</p>}
+          </form>
+          <button style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', marginTop: 12, fontSize: '0.82rem' }}
+            onClick={() => setShowForm(false)}>
+            &larr; Back
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="ll-auth-screen">
+      <div className="ll-auth-card" style={{ textAlign: 'center' }}>
+        <span className="auth-icon">&#128118;</span>
+        <h1>{title}</h1>
+        <p className="auth-subtitle">{message}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
+          {(setupError || hasPending) && (
+            <button className="auth-submit-btn" onClick={() => window.location.reload()}>
+              Refresh &amp; Retry
+            </button>
+          )}
+          <button className="auth-submit-btn"
+            style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary-dark)', border: '2px solid var(--color-primary)' }}
+            onClick={() => setShowForm(true)}>
+            Complete Setup Manually
+          </button>
+          <button className="auth-submit-btn"
+            style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
+            onClick={() => navigate('/join')}>
+            Join a Family
+          </button>
+          <button className="auth-submit-btn"
+            style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
+            onClick={() => { localStorage.removeItem('pendingJoin'); localStorage.removeItem('pendingSignup'); navigate('/signup') }}>
+            Create New Account
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const tabs = [
   { label: 'Dashboard', path: '' },
@@ -38,56 +161,7 @@ export default function TrackerApp() {
   }
 
   if (!activeChild) {
-    const hasPendingJoin = !!localStorage.getItem('pendingJoin')
-    const hasPendingSignup = !!localStorage.getItem('pendingSignup')
-    const hasPending = hasPendingJoin || hasPendingSignup
-
-    let title = 'No Child Found'
-    let message = 'You need to join a family or create an account to start tracking.'
-    if (setupError === 'signup') {
-      title = 'Setup Issue'
-      message = 'We had trouble finishing your account setup. Please try again or refresh the page.'
-    } else if (setupError === 'join') {
-      title = 'Join Issue'
-      message = 'We couldn\'t complete joining the family. The child\'s name or PIN may be wrong. Please try again.'
-    } else if (hasPending) {
-      title = 'Almost There!'
-      message = 'Your request is being processed. If it doesn\'t complete automatically, try refreshing or join again.'
-    }
-
-    return (
-      <div className="ll-auth-screen">
-        <div className="ll-auth-card" style={{ textAlign: 'center' }}>
-          <span className="auth-icon">&#128118;</span>
-          <h1>{title}</h1>
-          <p className="auth-subtitle">{message}</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
-            {(setupError || hasPending) && (
-              <button
-                className="auth-submit-btn"
-                onClick={() => window.location.reload()}
-              >
-                Refresh &amp; Retry
-              </button>
-            )}
-            <button
-              className="auth-submit-btn"
-              style={setupError || hasPending ? { background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' } : {}}
-              onClick={() => navigate('/join')}
-            >
-              Join a Family
-            </button>
-            <button
-              className="auth-submit-btn"
-              style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
-              onClick={() => { localStorage.removeItem('pendingJoin'); localStorage.removeItem('pendingSignup'); navigate('/signup') }}
-            >
-              Create New Account
-            </button>
-          </div>
-        </div>
-      </div>
-    )
+    return <SetupFallback setupError={setupError} navigate={navigate} />
   }
 
   const latestWeight = getLatestWeight()

@@ -58,22 +58,28 @@ export function AuthProvider({ children }) {
   async function completePendingSignup() {
     const pending = localStorage.getItem('pendingSignup')
     if (!pending) return
-    try {
-      const data = JSON.parse(pending)
-      const { error } = await supabase.rpc('complete_signup', {
-        p_family_name: data.familyName,
-        p_pin_input: data.pin,
-        p_display_name: data.displayName,
-        p_child_name: data.childName,
-        p_child_dob: data.childDob,
-      })
-      if (error) throw error
-      // Only clear after success (idempotent RPC prevents duplicates on retry)
-      localStorage.removeItem('pendingSignup')
-    } catch (err) {
-      console.error('Failed to complete pending signup:', err)
-      setSetupError('signup')
+    // Small delay to ensure auth.uid() is propagated server-side after code exchange
+    await new Promise(r => setTimeout(r, 1000))
+    // Retry up to 2 times in case of transient auth propagation issues
+    const data = JSON.parse(pending)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const { error } = await supabase.rpc('complete_signup', {
+          p_family_name: data.familyName,
+          p_pin_input: data.pin,
+          p_display_name: data.displayName,
+          p_child_name: data.childName,
+          p_child_dob: data.childDob,
+        })
+        if (error) throw error
+        localStorage.removeItem('pendingSignup')
+        return
+      } catch (err) {
+        console.error(`Failed to complete pending signup (attempt ${attempt + 1}):`, err)
+        if (attempt === 0) await new Promise(r => setTimeout(r, 2000))
+      }
     }
+    setSetupError('signup')
   }
 
   async function completePendingJoin() {

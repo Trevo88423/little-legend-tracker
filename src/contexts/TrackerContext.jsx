@@ -72,7 +72,13 @@ export function TrackerProvider({ children }) {
       ...prev,
       medications: (rows || []).map(m => ({
         id: m.id, name: m.name, purpose: m.purpose, dose: m.dose,
-        category: m.category, times: m.times, instructions: m.instructions
+        category: m.category, times: m.times, instructions: m.instructions,
+        supplyUnit: m.supply_unit || 'mL', doseAmount: m.dose_amount != null ? Number(m.dose_amount) : null,
+        supplyRemaining: m.supply_remaining != null ? Number(m.supply_remaining) : null,
+        supplyTotal: m.supply_total != null ? Number(m.supply_total) : null,
+        refillsRemaining: m.refills_remaining, prescriptionSource: m.prescription_source,
+        expiryDate: m.expiry_date, openedDate: m.opened_date,
+        daysAfterOpening: m.days_after_opening, lowSupplyDays: m.low_supply_days ?? 3,
       }))
     }))
   }
@@ -205,22 +211,36 @@ export function TrackerProvider({ children }) {
     const med = data.medications.find(m => m.id === medId)
 
     if (isMedGiven(medId, time)) {
+      // Un-give: increment supply back
       setData(prev => {
         const newLog = { ...prev.medLog }
         if (newLog[d]) { newLog[d] = { ...newLog[d] }; delete newLog[d][key] }
-        return { ...prev, medLog: newLog }
+        const medications = med.doseAmount != null && med.supplyRemaining != null
+          ? prev.medications.map(m => m.id === medId ? { ...m, supplyRemaining: m.supplyRemaining + m.doseAmount } : m)
+          : prev.medications
+        return { ...prev, medLog: newLog, medications }
       })
       await supabase.from('med_logs').delete().match({ ...fq(), date: d, med_key: key })
+      if (med.doseAmount != null && med.supplyRemaining != null) {
+        await supabase.from('medications').update({ supply_remaining: med.supplyRemaining + med.doseAmount }).eq('id', medId)
+      }
       logActivity('med', `Unmarked ${med.name} (${formatTime12(time)}) \u2014 ${loggerName}`)
     } else {
+      // Give: decrement supply
       const givenAt = now24()
       setData(prev => {
         const newLog = { ...prev.medLog }
         if (!newLog[d]) newLog[d] = {}
         newLog[d] = { ...newLog[d], [key]: { givenAt, givenBy: loggerName } }
-        return { ...prev, medLog: newLog }
+        const medications = med.doseAmount != null && med.supplyRemaining != null
+          ? prev.medications.map(m => m.id === medId ? { ...m, supplyRemaining: Math.max(0, m.supplyRemaining - m.doseAmount) } : m)
+          : prev.medications
+        return { ...prev, medLog: newLog, medications }
       })
       await supabase.from('med_logs').upsert({ ...fq(), date: d, med_key: key, given_at: givenAt, given_by: loggerName })
+      if (med.doseAmount != null && med.supplyRemaining != null) {
+        await supabase.from('medications').update({ supply_remaining: Math.max(0, med.supplyRemaining - med.doseAmount) }).eq('id', medId)
+      }
       logActivity('med', `Gave ${med.name} ${med.dose} at ${formatTime12(givenAt)} \u2014 ${loggerName}`)
     }
   }
@@ -373,28 +393,102 @@ export function TrackerProvider({ children }) {
 
   // ==================== MEDICATIONS SETTINGS ====================
   async function saveMedication(medData) {
-    const { id: medId, name, purpose, dose, category, times, instructions } = medData
+    const { id: medId, name, purpose, dose, category, times, instructions,
+      supplyUnit, doseAmount, supplyRemaining, supplyTotal,
+      refillsRemaining, prescriptionSource, expiryDate, openedDate,
+      daysAfterOpening, lowSupplyDays } = medData
+    const inventoryFields = {
+      supplyUnit: supplyUnit || 'mL',
+      doseAmount: doseAmount != null && doseAmount !== '' ? Number(doseAmount) : null,
+      supplyRemaining: supplyRemaining != null && supplyRemaining !== '' ? Number(supplyRemaining) : null,
+      supplyTotal: supplyTotal != null && supplyTotal !== '' ? Number(supplyTotal) : null,
+      refillsRemaining: refillsRemaining != null && refillsRemaining !== '' ? Number(refillsRemaining) : null,
+      prescriptionSource: prescriptionSource || null,
+      expiryDate: expiryDate || null, openedDate: openedDate || null,
+      daysAfterOpening: daysAfterOpening != null && daysAfterOpening !== '' ? Number(daysAfterOpening) : null,
+      lowSupplyDays: lowSupplyDays != null && lowSupplyDays !== '' ? Number(lowSupplyDays) : 3,
+    }
+    const dbInventory = {
+      supply_unit: inventoryFields.supplyUnit, dose_amount: inventoryFields.doseAmount,
+      supply_remaining: inventoryFields.supplyRemaining, supply_total: inventoryFields.supplyTotal,
+      refills_remaining: inventoryFields.refillsRemaining, prescription_source: inventoryFields.prescriptionSource,
+      expiry_date: inventoryFields.expiryDate, opened_date: inventoryFields.openedDate,
+      days_after_opening: inventoryFields.daysAfterOpening, low_supply_days: inventoryFields.lowSupplyDays,
+    }
     if (medId) {
       setData(prev => ({
         ...prev,
         medications: prev.medications.map(m => m.id === medId
-          ? { ...m, name, purpose, dose, category, times, instructions }
+          ? { ...m, name, purpose, dose, category, times, instructions, ...inventoryFields }
           : m
         )
       }))
       const { error } = await supabase.from('medications').update({
-        name, purpose, dose, category, times, instructions
+        name, purpose, dose, category, times, instructions, ...dbInventory
       }).eq('id', medId)
       if (error) { loadMedications(); throw error }
     } else {
       const id = genId()
-      const newMed = { id, name, purpose, dose, category, times, instructions }
+      const newMed = { id, name, purpose, dose, category, times, instructions, ...inventoryFields }
       setData(prev => ({ ...prev, medications: [...prev.medications, newMed] }))
       const { error } = await supabase.from('medications').insert({
-        id, ...fq(), name, purpose, dose, category, times, instructions, active: true
+        id, ...fq(), name, purpose, dose, category, times, instructions, ...dbInventory, active: true
       })
       if (error) { loadMedications(); throw error }
     }
+  }
+
+  async function openNewBottle(medId) {
+    const med = data.medications.find(m => m.id === medId)
+    if (!med || !med.supplyTotal) return
+    const todayStr = today()
+    setData(prev => ({
+      ...prev,
+      medications: prev.medications.map(m => m.id === medId ? {
+        ...m, supplyRemaining: m.supplyTotal, openedDate: todayStr,
+        refillsRemaining: m.refillsRemaining != null ? Math.max(0, m.refillsRemaining - 1) : null,
+      } : m)
+    }))
+    const updates = { supply_remaining: med.supplyTotal, opened_date: todayStr }
+    if (med.refillsRemaining != null) updates.refills_remaining = Math.max(0, med.refillsRemaining - 1)
+    await supabase.from('medications').update(updates).eq('id', medId)
+    logActivity('med', `Opened new ${med.supplyUnit || 'bottle'} of ${med.name} \u2014 ${loggerName}`)
+  }
+
+  function getMedSupplyInfo(medId) {
+    const med = data.medications.find(m => m.id === medId)
+    if (!med) return null
+    const hasSupply = med.supplyRemaining != null && med.doseAmount != null
+    const dosesRemaining = hasSupply ? med.supplyRemaining / med.doseAmount : null
+    const timesPerDay = med.times?.length || 1
+    const daysRemaining = hasSupply ? med.supplyRemaining / (med.doseAmount * timesPerDay) : null
+    let effectiveExpiry = null
+    if (med.expiryDate) effectiveExpiry = med.expiryDate
+    if (med.openedDate && med.daysAfterOpening) {
+      const opened = new Date(med.openedDate)
+      opened.setDate(opened.getDate() + med.daysAfterOpening)
+      const openedExpiry = opened.toISOString().split('T')[0]
+      if (!effectiveExpiry || openedExpiry < effectiveExpiry) effectiveExpiry = openedExpiry
+    }
+    const todayStr = today()
+    const daysUntilExpiry = effectiveExpiry ? Math.ceil((new Date(effectiveExpiry) - new Date(todayStr)) / 86400000) : null
+    const isLow = daysRemaining != null && daysRemaining <= (med.lowSupplyDays ?? 3)
+    const isExpiringSoon = daysUntilExpiry != null && daysUntilExpiry <= 7 && daysUntilExpiry > 0
+    const isExpired = daysUntilExpiry != null && daysUntilExpiry <= 0
+    return {
+      supplyRemaining: med.supplyRemaining, supplyTotal: med.supplyTotal,
+      supplyUnit: med.supplyUnit, doseAmount: med.doseAmount,
+      dosesRemaining, daysRemaining, effectiveExpiry, daysUntilExpiry,
+      isLow, isExpiringSoon, isExpired, refillsRemaining: med.refillsRemaining,
+      prescriptionSource: med.prescriptionSource, hasSupply,
+    }
+  }
+
+  function getMedsNeedingAttention() {
+    return data.medications.filter(med => {
+      const info = getMedSupplyInfo(med.id)
+      return info && (info.isLow || info.isExpiringSoon || info.isExpired)
+    }).map(med => ({ med, info: getMedSupplyInfo(med.id) }))
   }
 
   async function deleteMedication(id) {
@@ -479,7 +573,7 @@ export function TrackerProvider({ children }) {
     <TrackerContext.Provider value={{
       data, loading, loggerName,
       // Med operations
-      isMedGiven, toggleMed, resetMedsForDay, saveMedication, deleteMedication,
+      isMedGiven, toggleMed, resetMedsForDay, saveMedication, deleteMedication, openNewBottle, getMedSupplyInfo, getMedsNeedingAttention,
       // Feed operations
       logFeed, deleteFeed, saveFeedSchedule, deleteFeedSchedule, isFeedDone, getMatchingFeed, getFeedScheduleStats,
       // Weight operations
@@ -510,6 +604,9 @@ const EMPTY_TRACKER = {
   toggleSetting: () => {},
   saveMedication: async () => {},
   deleteMedication: async () => {},
+  openNewBottle: async () => {},
+  getMedSupplyInfo: () => null,
+  getMedsNeedingAttention: () => [],
   logMed: async () => {},
   unlogMed: async () => {},
   addFeed: async () => {},

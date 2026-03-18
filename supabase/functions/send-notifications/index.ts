@@ -31,6 +31,14 @@ interface Medication {
   times: string[];
   family_id: string;
   child_id: string;
+  supply_unit: string | null;
+  dose_amount: number | null;
+  supply_remaining: number | null;
+  supply_total: number | null;
+  expiry_date: string | null;
+  opened_date: string | null;
+  days_after_opening: number | null;
+  low_supply_days: number | null;
 }
 
 interface Settings {
@@ -112,9 +120,10 @@ serve(async (req: Request) => {
       if (settings?.med_alarms) {
         const { data: medications } = await supabase
           .from("medications")
-          .select("id, name, dose, times")
+          .select("id, name, dose, times, supply_unit, dose_amount, supply_remaining, supply_total, expiry_date, opened_date, days_after_opening, low_supply_days")
           .eq("family_id", familyId)
-          .eq("child_id", childId);
+          .eq("child_id", childId)
+          .eq("active", true);
 
         if (medications && medications.length > 0) {
           // Get today's med_logs to check what's already given
@@ -259,6 +268,105 @@ serve(async (req: Request) => {
                 const pushErr = err as { statusCode?: number };
                 if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
                   expiredEndpoints.push(sub.endpoint);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // === SUPPLY & EXPIRY NOTIFICATIONS (8:00 AM only) ===
+      if (settings?.med_alarms && nowHours === 8 && nowMinutes === 0) {
+        const { data: supplyMeds } = await supabase
+          .from("medications")
+          .select("id, name, dose, times, supply_unit, dose_amount, supply_remaining, supply_total, expiry_date, opened_date, days_after_opening, low_supply_days")
+          .eq("family_id", familyId)
+          .eq("child_id", childId)
+          .eq("active", true);
+        for (const med of (supplyMeds || []) as Medication[]) {
+          const hasSupply = med.dose_amount != null && med.supply_remaining != null;
+          const timesPerDay = med.times?.length || 1;
+          const daysRemaining = hasSupply ? med.supply_remaining! / (med.dose_amount! * timesPerDay) : null;
+          const lowDays = med.low_supply_days ?? 3;
+          const isLow = daysRemaining != null && daysRemaining <= lowDays;
+
+          // Calculate effective expiry
+          let effectiveExpiry: string | null = med.expiry_date || null;
+          if (med.opened_date && med.days_after_opening) {
+            const opened = new Date(med.opened_date);
+            opened.setDate(opened.getDate() + med.days_after_opening);
+            const openedExpiry = opened.toISOString().split("T")[0];
+            if (!effectiveExpiry || openedExpiry < effectiveExpiry) effectiveExpiry = openedExpiry;
+          }
+          const daysUntilExpiry = effectiveExpiry ? Math.ceil((new Date(effectiveExpiry).getTime() - new Date(todayStr).getTime()) / 86400000) : null;
+          const isExpiringSoon = daysUntilExpiry != null && daysUntilExpiry <= 7 && daysUntilExpiry > 0;
+          const isExpired = daysUntilExpiry != null && daysUntilExpiry <= 0;
+
+          // Low supply notification
+          if (isLow && daysRemaining != null) {
+            const { error: logError } = await supabase.from("notification_log").insert({
+              family_id: familyId, child_id: childId, medication_id: med.id,
+              med_time: "supply", notification_type: "supply-low", notification_date: todayStr,
+            });
+            if (!logError) {
+              const unit = med.supply_unit || "mL";
+              const title = `⚠️ Low supply: ${med.name}`;
+              const body = `${Math.round(daysRemaining)} days remaining (${med.supply_remaining}${unit})`;
+              const tag = `supply-low-${med.id}`;
+              const payload = JSON.stringify({ title, body, tag, data: { url: "/app/meds" } });
+              for (const sub of subs) {
+                try {
+                  await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
+                  totalSent++;
+                } catch (err: unknown) {
+                  const pushErr = err as { statusCode?: number };
+                  if (pushErr.statusCode === 410 || pushErr.statusCode === 404) expiredEndpoints.push(sub.endpoint);
+                }
+              }
+            }
+          }
+
+          // Expiring soon notification
+          if (isExpiringSoon && daysUntilExpiry != null) {
+            const { error: logError } = await supabase.from("notification_log").insert({
+              family_id: familyId, child_id: childId, medication_id: med.id,
+              med_time: "expiry", notification_type: "supply-expiring", notification_date: todayStr,
+            });
+            if (!logError) {
+              const title = `⚠️ Expiring soon: ${med.name}`;
+              const body = `Expires in ${daysUntilExpiry} days`;
+              const tag = `supply-exp-${med.id}`;
+              const payload = JSON.stringify({ title, body, tag, data: { url: "/app/meds" } });
+              for (const sub of subs) {
+                try {
+                  await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
+                  totalSent++;
+                } catch (err: unknown) {
+                  const pushErr = err as { statusCode?: number };
+                  if (pushErr.statusCode === 410 || pushErr.statusCode === 404) expiredEndpoints.push(sub.endpoint);
+                }
+              }
+            }
+          }
+
+          // Expired notification
+          if (isExpired) {
+            const { error: logError } = await supabase.from("notification_log").insert({
+              family_id: familyId, child_id: childId, medication_id: med.id,
+              med_time: "expiry", notification_type: "supply-expired", notification_date: todayStr,
+            });
+            if (!logError) {
+              const title = `❌ Expired: ${med.name}`;
+              const body = "This medication has expired and should not be used";
+              const tag = `supply-expired-${med.id}`;
+              const payload = JSON.stringify({ title, body, tag, data: { url: "/app/meds" } });
+              for (const sub of subs) {
+                try {
+                  await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
+                  totalSent++;
+                } catch (err: unknown) {
+                  const pushErr = err as { statusCode?: number };
+                  if (pushErr.statusCode === 410 || pushErr.statusCode === 404) expiredEndpoints.push(sub.endpoint);
                 }
               }
             }

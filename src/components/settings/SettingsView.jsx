@@ -13,16 +13,28 @@ const emptyMed = {
   dose: '',
   category: 'other',
   times: ['08:00'],
-  instructions: ''
+  instructions: '',
+  supplyUnit: 'mL',
+  doseAmount: '',
+  supplyRemaining: '',
+  supplyTotal: '',
+  refillsRemaining: '',
+  prescriptionSource: '',
+  expiryDate: '',
+  openedDate: '',
+  daysAfterOpening: '',
+  lowSupplyDays: '3',
 }
 
 export default function SettingsView() {
-  const { data, toggleSetting, saveMedication, deleteMedication, exportData } = useTracker()
+  const { data, toggleSetting, saveMedication, deleteMedication, exportData, openNewBottle, getMedSupplyInfo } = useTracker()
   const { family, members, activeChild, updateChild } = useFamily()
   const navigate = useNavigate()
 
   const [showMedModal, setShowMedModal] = useState(false)
   const [medForm, setMedForm] = useState({ ...emptyMed })
+  const [showSupplySection, setShowSupplySection] = useState(false)
+  const [showRefillModal, setShowRefillModal] = useState(null)
   const [editingChild, setEditingChild] = useState(false)
   const [childName, setChildName] = useState('')
   const [childDob, setChildDob] = useState('')
@@ -38,6 +50,7 @@ export default function SettingsView() {
 
   function openAddMed() {
     setMedForm({ ...emptyMed })
+    setShowSupplySection(false)
     setShowMedModal(true)
   }
 
@@ -49,8 +62,20 @@ export default function SettingsView() {
       dose: med.dose || '',
       category: med.category || 'other',
       times: [...(med.times || ['08:00'])],
-      instructions: med.instructions || ''
+      instructions: med.instructions || '',
+      supplyUnit: med.supplyUnit || 'mL',
+      doseAmount: med.doseAmount != null ? String(med.doseAmount) : '',
+      supplyRemaining: med.supplyRemaining != null ? String(med.supplyRemaining) : '',
+      supplyTotal: med.supplyTotal != null ? String(med.supplyTotal) : '',
+      refillsRemaining: med.refillsRemaining != null ? String(med.refillsRemaining) : '',
+      prescriptionSource: med.prescriptionSource || '',
+      expiryDate: med.expiryDate || '',
+      openedDate: med.openedDate || '',
+      daysAfterOpening: med.daysAfterOpening != null ? String(med.daysAfterOpening) : '',
+      lowSupplyDays: med.lowSupplyDays != null ? String(med.lowSupplyDays) : '3',
     })
+    const hasInventory = med.doseAmount != null || med.supplyTotal != null || med.expiryDate
+    setShowSupplySection(!!hasInventory)
     setShowMedModal(true)
   }
 
@@ -255,42 +280,66 @@ export default function SettingsView() {
         {medications.length === 0 ? (
           <div className="t-empty-state">No medications configured</div>
         ) : (
-          medications.map(med => (
-            <div
-              className={`t-med-item ${catClasses[med.category] || 'med-other'}`}
-              key={med.id}
-              style={{ cursor: 'default' }}
-            >
-              <div className="t-med-info">
-                <div className="t-med-name">
-                  {catIcons[med.category] || '💊'} {med.name}
+          medications.map(med => {
+            const info = getMedSupplyInfo(med.id)
+            return (
+              <div
+                className={`t-med-item ${catClasses[med.category] || 'med-other'}`}
+                key={med.id}
+                style={{ cursor: 'default' }}
+              >
+                <div className="t-med-info">
+                  <div className="t-med-name">
+                    {catIcons[med.category] || '💊'} {med.name}
+                  </div>
+                  <div className="t-med-dose">{med.dose}</div>
+                  {med.purpose && <div className="t-med-detail">{med.purpose}</div>}
+                  <div className="t-med-detail">
+                    Times: {med.times.map(t => formatTime12(t)).join(', ')}
+                  </div>
+                  {med.instructions && (
+                    <div className="t-med-detail">{med.instructions}</div>
+                  )}
+                  {info?.hasSupply && (
+                    <div className="t-med-detail" style={{ marginTop: 4 }}>
+                      {info.supplyRemaining != null && (
+                        <span>{info.supplyRemaining}{info.supplyUnit}{info.daysRemaining != null ? ` (${Math.round(info.daysRemaining)}d)` : ''}</span>
+                      )}
+                      {info.refillsRemaining != null && <span> · {info.refillsRemaining} refills</span>}
+                    </div>
+                  )}
+                  {med.prescriptionSource && (
+                    <div className="t-med-detail">Rx: {med.prescriptionSource}</div>
+                  )}
                 </div>
-                <div className="t-med-dose">{med.dose}</div>
-                {med.purpose && <div className="t-med-detail">{med.purpose}</div>}
-                <div className="t-med-detail">
-                  Times: {med.times.map(t => formatTime12(t)).join(', ')}
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexDirection: 'column', alignItems: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      className="t-btn t-btn-secondary t-btn-small"
+                      onClick={() => openEditMed(med)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="t-delete-btn"
+                      onClick={() => handleDeleteMed(med)}
+                      title="Delete medication"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {info?.supplyTotal && (
+                    <button
+                      className="t-btn t-btn-green t-btn-small"
+                      onClick={() => setShowRefillModal(med)}
+                    >
+                      Refill
+                    </button>
+                  )}
                 </div>
-                {med.instructions && (
-                  <div className="t-med-detail">{med.instructions}</div>
-                )}
               </div>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                <button
-                  className="t-btn t-btn-secondary t-btn-small"
-                  onClick={() => openEditMed(med)}
-                >
-                  Edit
-                </button>
-                <button
-                  className="t-delete-btn"
-                  onClick={() => handleDeleteMed(med)}
-                  title="Delete medication"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))
+            )
+          })
         )}
 
         <button
@@ -551,6 +600,80 @@ export default function SettingsView() {
                 </button>
               </div>
 
+              <div style={{ marginTop: 16, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontWeight: 700, fontSize: '0.78rem', color: 'var(--color-primary)',
+                    padding: 0, fontFamily: 'var(--font-family)',
+                  }}
+                  onClick={() => setShowSupplySection(prev => !prev)}
+                >
+                  {showSupplySection ? '\u25BC' : '\u25B6'} Supply & Prescription
+                </button>
+              </div>
+
+              {showSupplySection && (
+                <div style={{ padding: '8px 0' }}>
+                  <div className="t-form-row">
+                    <label>Unit</label>
+                    <select value={medForm.supplyUnit} onChange={e => updateMedForm('supplyUnit', e.target.value)}>
+                      <option value="mL">mL</option>
+                      <option value="tablets">Tablets</option>
+                      <option value="capsules">Capsules</option>
+                      <option value="doses">Doses</option>
+                      <option value="puffs">Puffs</option>
+                    </select>
+                  </div>
+                  <div className="t-form-row">
+                    <label>Dose Amt</label>
+                    <input type="number" step="any" min="0" placeholder="e.g. 2.5"
+                      value={medForm.doseAmount} onChange={e => updateMedForm('doseAmount', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Current</label>
+                    <input type="number" step="any" min="0" placeholder="Remaining supply"
+                      value={medForm.supplyRemaining} onChange={e => updateMedForm('supplyRemaining', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Full Size</label>
+                    <input type="number" step="any" min="0" placeholder="Full bottle/pack"
+                      value={medForm.supplyTotal} onChange={e => updateMedForm('supplyTotal', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Refills</label>
+                    <input type="number" min="0" placeholder="Remaining refills"
+                      value={medForm.refillsRemaining} onChange={e => updateMedForm('refillsRemaining', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Prescriber</label>
+                    <input type="text" placeholder="e.g. Dr Smith (GP)"
+                      value={medForm.prescriptionSource} onChange={e => updateMedForm('prescriptionSource', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Expiry</label>
+                    <input type="date" value={medForm.expiryDate}
+                      onChange={e => updateMedForm('expiryDate', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Opened</label>
+                    <input type="date" value={medForm.openedDate}
+                      onChange={e => updateMedForm('openedDate', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Days Valid</label>
+                    <input type="number" min="0" placeholder="Days after opening"
+                      value={medForm.daysAfterOpening} onChange={e => updateMedForm('daysAfterOpening', e.target.value)} />
+                  </div>
+                  <div className="t-form-row">
+                    <label>Low Alert</label>
+                    <input type="number" min="0" placeholder="Days of supply"
+                      value={medForm.lowSupplyDays} onChange={e => updateMedForm('lowSupplyDays', e.target.value)} />
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                 <button
                   type="button"
@@ -565,6 +688,30 @@ export default function SettingsView() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showRefillModal && (
+        <div className="t-modal-overlay" onClick={() => setShowRefillModal(null)}>
+          <div className="t-modal" onClick={e => e.stopPropagation()}>
+            <div className="t-modal-handle" />
+            <h3>Refill {showRefillModal.name}</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: 16 }}>
+              This will reset supply to {showRefillModal.supplyTotal}{showRefillModal.supplyUnit || 'mL'},
+              set opened date to today{showRefillModal.refillsRemaining != null ? `, and use 1 of ${showRefillModal.refillsRemaining} remaining refills` : ''}.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="t-btn t-btn-secondary" style={{ flex: 1 }} onClick={() => setShowRefillModal(null)}>
+                Cancel
+              </button>
+              <button className="t-btn t-btn-green" style={{ flex: 1 }} onClick={() => {
+                openNewBottle(showRefillModal.id)
+                setShowRefillModal(null)
+              }}>
+                Open New Bottle
+              </button>
+            </div>
           </div>
         </div>
       )}
