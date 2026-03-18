@@ -87,33 +87,37 @@ export function AuthProvider({ children }) {
     if (!pending) return
     // Small delay to ensure auth.users row is propagated
     await new Promise(r => setTimeout(r, 1000))
-    try {
-      const data = JSON.parse(pending)
-      // Verify PIN + family name
-      const { data: families, error: rpcError } = await supabase
-        .rpc('verify_family_pin', {
-          pin_input: data.pin,
-          family_name_input: data.familyName,
+    const data = JSON.parse(pending)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        // Verify PIN + family name
+        const { data: families, error: rpcError } = await supabase
+          .rpc('verify_family_pin', {
+            pin_input: data.pin,
+            family_name_input: data.familyName,
+          })
+        if (rpcError) throw rpcError
+        if (!families || families.length === 0) {
+          console.error('Pending join: no family found with that name and PIN')
+          setSetupError('join')
+          return
+        }
+        // Join the first matching family
+        const { error: joinError } = await supabase.rpc('complete_join_family', {
+          p_family_id: families[0].family_id,
+          p_display_name: data.displayName,
+          p_pin_input: data.pin,
         })
-      if (rpcError) throw rpcError
-      if (!families || families.length === 0) {
-        console.error('Pending join: no family found with that name and PIN')
-        setSetupError('join')
+        if (joinError) throw joinError
+        // Only clear after success (idempotent RPC prevents duplicates on retry)
+        localStorage.removeItem('pendingJoin')
         return
+      } catch (err) {
+        console.error(`Failed to complete pending join (attempt ${attempt + 1}):`, err)
+        if (attempt === 0) await new Promise(r => setTimeout(r, 2000))
       }
-      // Join the first matching family
-      const { error: joinError } = await supabase.rpc('complete_join_family', {
-        p_family_id: families[0].family_id,
-        p_display_name: data.displayName,
-        p_pin_input: data.pin,
-      })
-      if (joinError) throw joinError
-      // Only clear after success (idempotent RPC prevents duplicates on retry)
-      localStorage.removeItem('pendingJoin')
-    } catch (err) {
-      console.error('Failed to complete pending join:', err)
-      setSetupError('join')
     }
+    setSetupError('join')
   }
 
   async function signUp(email, password) {
