@@ -270,7 +270,33 @@ export function TrackerProvider({ children }) {
 
   function isFeedDone(scheduledTime) {
     const feeds = getTodayFeeds()
-    return feeds.some(f => f.time === scheduledTime)
+    // Exact match first
+    if (feeds.some(f => f.time === scheduledTime)) return true
+    // Fuzzy match: feed logged within ±15 minutes of scheduled time
+    const [sh, sm] = scheduledTime.split(':').map(Number)
+    const schedMins = sh * 60 + sm
+    return feeds.some(f => {
+      const [fh, fm] = f.time.split(':').map(Number)
+      const feedMins = fh * 60 + fm
+      return Math.abs(feedMins - schedMins) <= 15
+    })
+  }
+
+  function getMatchingFeed(scheduledTime) {
+    const feeds = getTodayFeeds()
+    // Exact match first
+    const exact = feeds.find(f => f.time === scheduledTime)
+    if (exact) return exact
+    // Fuzzy match: closest feed within ±15 minutes
+    const [sh, sm] = scheduledTime.split(':').map(Number)
+    const schedMins = sh * 60 + sm
+    let best = null, bestDiff = Infinity
+    for (const f of feeds) {
+      const [fh, fm] = f.time.split(':').map(Number)
+      const diff = Math.abs(fh * 60 + fm - schedMins)
+      if (diff <= 15 && diff < bestDiff) { best = f; bestDiff = diff }
+    }
+    return best
   }
 
   function getFeedScheduleStats() {
@@ -455,7 +481,7 @@ export function TrackerProvider({ children }) {
       // Med operations
       isMedGiven, toggleMed, resetMedsForDay, saveMedication, deleteMedication,
       // Feed operations
-      logFeed, deleteFeed, saveFeedSchedule, deleteFeedSchedule, isFeedDone, getFeedScheduleStats,
+      logFeed, deleteFeed, saveFeedSchedule, deleteFeedSchedule, isFeedDone, getMatchingFeed, getFeedScheduleStats,
       // Weight operations
       logWeight, deleteWeight,
       // Note operations
@@ -491,6 +517,7 @@ const EMPTY_TRACKER = {
   saveFeedSchedule: async () => {},
   deleteFeedSchedule: async () => {},
   isFeedDone: () => false,
+  getMatchingFeed: () => null,
   getFeedScheduleStats: () => ({ total: 0, done: 0 }),
   addWeight: async () => {},
   addNote: async () => {},

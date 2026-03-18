@@ -6,7 +6,7 @@ import { typeLabels, typeCls } from '../../lib/constants'
 export default function FeedingView() {
   const {
     data, getTodayFeeds, logFeed, deleteFeed,
-    saveFeedSchedule, deleteFeedSchedule, isFeedDone, getFeedScheduleStats
+    saveFeedSchedule, deleteFeedSchedule, isFeedDone, getMatchingFeed, getFeedScheduleStats
   } = useTracker()
 
   const [feedTime, setFeedTime] = useState(now24())
@@ -115,11 +115,11 @@ export default function FeedingView() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {[...schedule.times].sort().map(time => {
               const done = isFeedDone(time)
-              const matchingFeed = done ? todayFeeds.find(f => f.time === time) : null
+              const matchingFeed = done ? getMatchingFeed(time) : null
               return (
                 <div
                   key={time}
-                  onClick={() => handleScheduleSlotTap(time)}
+                  onClick={() => !done && handleScheduleSlotTap(time)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '8px 12px', borderRadius: 8,
@@ -138,6 +138,11 @@ export default function FeedingView() {
                   {matchingFeed && (
                     <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: '0.85rem', color: 'var(--color-primary)' }}>
                       {matchingFeed.amount} mL
+                      {matchingFeed.time !== time && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginLeft: 4 }}>
+                          ({formatTime12(matchingFeed.time)})
+                        </span>
+                      )}
                     </span>
                   )}
                   {!done && (

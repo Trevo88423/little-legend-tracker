@@ -29,3 +29,10 @@ dist-ssr
 
 # Claude Code
 .claude/
+
+# Agent skills
+.agents/
+skills-lock.json
+
+# Supabase temp
+supabase/.temp/

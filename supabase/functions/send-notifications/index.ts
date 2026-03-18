@@ -4,6 +4,7 @@ import webpush from "npm:web-push@3.6.7";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const CRON_SECRET = Deno.env.get("CRON_SECRET")!;
 const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY")!;
 const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") || "mailto:noreply@littlelegendtracker.com";
@@ -50,13 +51,13 @@ interface FeedSchedule {
 
 serve(async (req: Request) => {
   try {
-    // Authenticate: only allow requests with the secret API key
+    // Authenticate: only allow requests with the cron secret
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!authHeader) {
       return new Response("Unauthorized", { status: 401 });
     }
-    const token = authHeader.split(" ")[1];
-    if (token !== SUPABASE_SERVICE_ROLE_KEY) {
+    const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
+    if (token !== CRON_SECRET) {
       return new Response("Unauthorized", { status: 401 });
     }
 

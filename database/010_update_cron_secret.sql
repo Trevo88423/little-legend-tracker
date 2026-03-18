@@ -1,0 +1,22 @@
+-- Update pg_cron job to use CRON_SECRET instead of SUPABASE_SERVICE_ROLE_KEY
+-- This prevents breakage when Supabase rotates API keys
+--
+-- Run this manually in the Supabase SQL Editor, replacing YOUR_CRON_SECRET
+-- with the value from Edge Function Secrets > CRON_SECRET:
+--
+-- SELECT cron.unschedule('send-medication-notifications');
+--
+-- SELECT cron.schedule(
+--   'send-medication-notifications',
+--   '* * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-notifications',
+--     headers := jsonb_build_object(
+--       'Authorization', 'YOUR_CRON_SECRET',
+--       'Content-Type', 'application/json'
+--     ),
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );

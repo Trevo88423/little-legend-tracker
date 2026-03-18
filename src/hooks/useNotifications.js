@@ -70,7 +70,7 @@ export function useNotifications() {
     alarmRef.current = setInterval(checkMeds, 30000)
 
     return () => { if (alarmRef.current) clearInterval(alarmRef.current) }
-  }, [data.settings.medAlarms, data.medications])
+  }, [data.settings.medAlarms, data.medications, isMedGiven])
 
   function sendNotification(title, body, tag) {
     // Always use service worker showNotification so tags deduplicate
@@ -127,7 +127,7 @@ export function useNotifications() {
     checkFeeds()
     const interval = setInterval(checkFeeds, 30000)
     return () => clearInterval(interval)
-  }, [data.settings.feedAlarms, data.feedSchedule])
+  }, [data.settings.feedAlarms, data.feedSchedule, isFeedDone])
 
   function playSound() {
     if (!data.settings.soundAlerts) return
