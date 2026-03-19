@@ -4,7 +4,6 @@ import '../styles/auth.css'
 export default function CheckEmail() {
   const location = useLocation()
   const email = location.state?.email || 'your email'
-  const joinAfterVerify = location.state?.joinAfterVerify
 
   return (
     <div className="ll-auth-screen">
@@ -20,11 +19,6 @@ export default function CheckEmail() {
           <p>
             Click the link in the email to confirm your account, then come back here to sign in.
           </p>
-          {joinAfterVerify && (
-            <p>
-              Once verified, sign in and go to <strong>Join Family</strong> to complete joining your family.
-            </p>
-          )}
           <p className="auth-check-email-tip">
             Can't find it? Check your spam or junk folder.
           </p>

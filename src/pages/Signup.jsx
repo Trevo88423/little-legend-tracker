@@ -1,11 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
-import { genId } from '../lib/idUtils'
 import '../styles/auth.css'
-
-// PIN hashing is done server-side via create_family_with_pin RPC
 
 export default function Signup() {
   const navigate = useNavigate()
@@ -37,38 +33,24 @@ export default function Signup() {
     setLoading(true)
 
     try {
-      // 1. Sign up the user
-      const { user, session } = await signUp(email.trim(), password)
+      // Sign up with onboarding data in metadata — DB trigger handles the rest
+      const { user, session } = await signUp(email.trim(), password, {
+        flow: 'signup',
+        display_name: displayName.trim(),
+        child_name: childName.trim(),
+        child_dob: childDob || null,
+        family_name: childName.trim(),
+        family_pin: familyPin,
+      })
       if (!user) throw new Error('Signup failed - no user returned')
 
-      // Store pending signup data for after email verification
-      const signupData = {
-        familyName: childName.trim(),
-        pin: familyPin,
-        displayName: displayName.trim(),
-        childName: childName.trim(),
-        childDob: childDob || null,
-      }
-
-      // If no session (email confirmation required), save data and redirect
-      if (!session) {
-        localStorage.setItem('pendingSignup', JSON.stringify(signupData))
+      if (session) {
+        // Email confirmation not required — trigger already fired on INSERT
+        navigate('/app')
+      } else {
+        // Email confirmation required — trigger fires when email confirmed
         navigate('/check-email', { state: { email: email.trim() } })
-        return
       }
-
-      // Session exists - complete signup immediately
-      const { error: rpcError } = await supabase.rpc('complete_signup', {
-        p_family_name: signupData.familyName,
-        p_pin_input: signupData.pin,
-        p_display_name: signupData.displayName,
-        p_child_name: signupData.childName,
-        p_child_dob: signupData.childDob,
-      })
-      if (rpcError) throw rpcError
-      localStorage.removeItem('pendingSignup')
-
-      navigate('/app')
     } catch (err) {
       setError(err.message || 'Signup failed')
     } finally {

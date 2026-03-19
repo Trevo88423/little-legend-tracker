@@ -8,14 +8,11 @@ export default function JoinFamily() {
   const navigate = useNavigate()
   const { user, signUp } = useAuth()
 
-  // Pre-fill from pendingJoin if available (e.g. after failed auto-join)
-  const pending = (() => { try { return JSON.parse(localStorage.getItem('pendingJoin') || 'null') } catch { return null } })()
-
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [displayName, setDisplayName] = useState(pending?.displayName || '')
-  const [familyName, setFamilyName] = useState(pending?.familyName || '')
-  const [familyPin, setFamilyPin] = useState(pending?.pin || '')
+  const [displayName, setDisplayName] = useState('')
+  const [familyName, setFamilyName] = useState('')
+  const [familyPin, setFamilyPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -36,29 +33,27 @@ export default function JoinFamily() {
     setLoading(true)
 
     try {
-      // If not logged in, sign up first
       if (!user) {
-        const { user: newUser, session } = await signUp(email.trim(), password)
+        // Not logged in: sign up with join metadata — DB trigger handles the rest
+        const { user: newUser, session } = await signUp(email.trim(), password, {
+          flow: 'join',
+          display_name: displayName.trim(),
+          family_name: familyName.trim(),
+          family_pin: familyPin,
+        })
         if (!newUser) throw new Error('Signup failed - no user returned')
 
-        // If email confirmation is required, there's no session yet
-        if (!session) {
-          localStorage.setItem('pendingJoin', JSON.stringify({
-            familyName: familyName.trim(),
-            pin: familyPin,
-            displayName: displayName.trim(),
-          }))
-          navigate('/check-email', {
-            state: {
-              email: email.trim(),
-              joinAfterVerify: true,
-            },
-          })
-          return
+        if (session) {
+          // Email confirmation not required — trigger already fired on INSERT
+          navigate('/app')
+        } else {
+          // Email confirmation required — trigger fires when email confirmed
+          navigate('/check-email', { state: { email: email.trim() } })
         }
+        return
       }
 
-      // Verify PIN + family name and join
+      // Already logged in: interactive PIN verification + join
       await verifyAndJoin()
     } catch (err) {
       setError(err.message || 'Failed to join family')

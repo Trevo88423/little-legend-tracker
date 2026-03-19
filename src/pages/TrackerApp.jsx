@@ -7,15 +7,14 @@ import { useNotifications } from '../hooks/useNotifications'
 import { supabase } from '../lib/supabase'
 import '../styles/tracker.css'
 
-function SetupFallback({ setupError, navigate }) {
-  const hasPendingJoin = !!localStorage.getItem('pendingJoin')
-  const hasPendingSignup = !!localStorage.getItem('pendingSignup')
-  const hasPending = hasPendingJoin || hasPendingSignup
+function SetupFallback({ user, navigate }) {
+  const flow = user?.user_metadata?.flow
+  const meta = user?.user_metadata || {}
 
   const [showForm, setShowForm] = useState(false)
-  const [displayName, setDisplayName] = useState('')
-  const [childName, setChildName] = useState('')
-  const [childDob, setChildDob] = useState('')
+  const [displayName, setDisplayName] = useState(meta.display_name || '')
+  const [childName, setChildName] = useState(meta.child_name || '')
+  const [childDob, setChildDob] = useState(meta.child_dob || '')
   const [pin, setPin] = useState('')
   const [formError, setFormError] = useState('')
   const [formLoading, setFormLoading] = useState(false)
@@ -34,7 +33,6 @@ function SetupFallback({ setupError, navigate }) {
         p_child_dob: childDob || null,
       })
       if (error) throw error
-      localStorage.removeItem('pendingSignup')
       window.location.reload()
     } catch (err) {
       setFormError(err.message || 'Setup failed. Please try again.')
@@ -45,15 +43,12 @@ function SetupFallback({ setupError, navigate }) {
 
   let title = 'No Child Found'
   let message = 'You need to join a family or create an account to start tracking.'
-  if (setupError === 'signup') {
+  if (flow === 'signup') {
     title = 'Setup Issue'
-    message = 'We had trouble finishing your account setup. You can complete it below, or try refreshing.'
-  } else if (setupError === 'join') {
+    message = 'Your account setup didn\'t complete automatically. You can complete it below.'
+  } else if (flow === 'join') {
     title = 'Join Issue'
-    message = 'We couldn\'t complete joining the family. The child\'s name or PIN may be wrong. Please try again.'
-  } else if (hasPending) {
-    title = 'Almost There!'
-    message = 'Your request is being processed. If it doesn\'t complete automatically, try refreshing or complete setup below.'
+    message = 'Couldn\'t auto-join the family — the child\'s name or PIN may have been wrong. Please try again.'
   }
 
   if (showForm) {
@@ -102,24 +97,37 @@ function SetupFallback({ setupError, navigate }) {
         <h1>{title}</h1>
         <p className="auth-subtitle">{message}</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
-          {(setupError || hasPending) && (
+          {flow && (
             <button className="auth-submit-btn" onClick={() => window.location.reload()}>
               Refresh &amp; Retry
             </button>
           )}
-          <button className="auth-submit-btn"
-            style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary-dark)', border: '2px solid var(--color-primary)' }}
-            onClick={() => setShowForm(true)}>
-            Complete Setup Manually
-          </button>
+          {flow === 'join' ? (
+            <>
+              <button className="auth-submit-btn" onClick={() => navigate('/join')}>
+                Try Joining Again
+              </button>
+              <button className="auth-submit-btn"
+                style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
+                onClick={() => setShowForm(true)}>
+                Create New Family Instead
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="auth-submit-btn" onClick={() => setShowForm(true)}>
+                Complete Setup Manually
+              </button>
+              <button className="auth-submit-btn"
+                style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
+                onClick={() => navigate('/join')}>
+                Join a Family
+              </button>
+            </>
+          )}
           <button className="auth-submit-btn"
             style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
-            onClick={() => navigate('/join')}>
-            Join a Family
-          </button>
-          <button className="auth-submit-btn"
-            style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '2px solid var(--color-border)' }}
-            onClick={() => { localStorage.removeItem('pendingJoin'); localStorage.removeItem('pendingSignup'); navigate('/signup') }}>
+            onClick={() => navigate('/signup')}>
             Create New Account
           </button>
         </div>
@@ -142,7 +150,7 @@ const tabs = [
 
 export default function TrackerApp() {
   const navigate = useNavigate()
-  const { signOut, setupError } = useAuth()
+  const { user, signOut } = useAuth()
   const { activeChild, loading: familyLoading, currentMember } = useFamily()
   const { loading: trackerLoading, loggerName, getLatestWeight } = useTracker()
   useNotifications()
@@ -161,7 +169,7 @@ export default function TrackerApp() {
   }
 
   if (!activeChild) {
-    return <SetupFallback setupError={setupError} navigate={navigate} />
+    return <SetupFallback user={user} navigate={navigate} />
   }
 
   const latestWeight = getLatestWeight()

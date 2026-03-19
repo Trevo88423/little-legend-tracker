@@ -15,11 +15,15 @@ export default function Login() {
   const [confirmed, setConfirmed] = useState(false)
 
   useEffect(() => {
-    // Detect email confirmation redirect (PKCE code or legacy hash)
+    // Detect email confirmation redirect (PKCE code, confirmed flag, or legacy hash)
     const params = new URLSearchParams(window.location.search)
     const hash = window.location.hash
-    if (params.get('code') || (hash && (hash.includes('type=signup') || hash.includes('type=email')))) {
+    if (params.get('code') || params.get('confirmed') || (hash && (hash.includes('type=signup') || hash.includes('type=email')))) {
       setConfirmed(true)
+      // Clean confirmed param from URL
+      if (params.get('confirmed')) {
+        window.history.replaceState(null, '', '/login')
+      }
     }
   }, [])
 
