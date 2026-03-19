@@ -77,11 +77,11 @@ export default function DashboardView() {
             onClick={(e) => { e.stopPropagation(); dismissAiBanner() }}
             style={{
               position: 'absolute', top: 6, right: 8,
-              background: 'none', border: 'none', color: 'var(--color-text-muted)',
+              background: 'none', border: 'none', color: 'inherit',
               fontSize: '1.1rem', cursor: 'pointer', opacity: 0.7, padding: '2px 6px',
             }}
             aria-label="Dismiss"
-          >x</button>
+          >✕</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: '1.5rem' }}>+</span>
             <div>
