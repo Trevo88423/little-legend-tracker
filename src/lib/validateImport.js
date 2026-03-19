@@ -65,6 +65,122 @@ function optionalDate(val) {
   return DATE_RE.test(trimmed) ? trimmed : null
 }
 
+// Detect if JSON is an exported backup (vs AI setup data)
+function isBackupFile(parsed) {
+  // Backup files have medLog as an object keyed by dates, or feeds with date/time fields
+  if (parsed.medLog && typeof parsed.medLog === 'object' && !Array.isArray(parsed.medLog)) {
+    return true
+  }
+  if (Array.isArray(parsed.feeds) && parsed.feeds.length > 0 && parsed.feeds[0].date && parsed.feeds[0].time) {
+    return true
+  }
+  if (Array.isArray(parsed.activityLog) && parsed.activityLog.length > 0) {
+    return true
+  }
+  return false
+}
+
+function extractHistory(parsed) {
+  const history = { medLog: {}, feeds: [], notes: [], trackerLogs: [], settings: null, activityLog: [] }
+
+  // Extract medLog: { "2026-03-19": { "medId_08:00": { givenAt, givenBy } } }
+  if (parsed.medLog && typeof parsed.medLog === 'object') {
+    for (const [date, entries] of Object.entries(parsed.medLog)) {
+      if (!DATE_RE.test(date) || typeof entries !== 'object') continue
+      history.medLog[date] = {}
+      for (const [medKey, entry] of Object.entries(entries)) {
+        if (!medKey || typeof entry !== 'object') continue
+        history.medLog[date][medKey] = {
+          givenAt: entry.givenAt || null,
+          givenBy: entry.givenBy || null,
+        }
+      }
+    }
+  }
+
+  // Extract feeds: [{ id, date, time, type, amount, notes, loggedBy }]
+  if (Array.isArray(parsed.feeds)) {
+    for (const f of parsed.feeds) {
+      if (!f.date || !f.time) continue
+      const amount = parseFloat(f.amount)
+      if (!amount || amount <= 0) continue
+      const type = VALID_FEED_TYPES.includes(f.type) ? f.type : 'bottle'
+      history.feeds.push({
+        id: f.id || null,
+        date: f.date,
+        time: f.time,
+        type,
+        amount,
+        notes: f.notes || null,
+        loggedBy: f.loggedBy || null,
+      })
+    }
+  }
+
+  // Extract notes with timestamps: [{ id, date, time, text, loggedBy }]
+  if (Array.isArray(parsed.notes)) {
+    for (const n of parsed.notes) {
+      if (typeof n !== 'object' || !n.date || !n.time || !n.text) continue
+      history.notes.push({
+        id: n.id || null,
+        date: n.date,
+        time: n.time,
+        text: n.text,
+        loggedBy: n.loggedBy || null,
+      })
+    }
+  }
+
+  // Extract trackerLogs: [{ id, trackerId, date, time, value, notes }]
+  if (Array.isArray(parsed.trackerLogs)) {
+    for (const tl of parsed.trackerLogs) {
+      if (!tl.trackerId || !tl.date || !tl.time) continue
+      history.trackerLogs.push({
+        id: tl.id || null,
+        trackerId: tl.trackerId,
+        date: tl.date,
+        time: tl.time,
+        value: tl.value != null ? String(tl.value) : null,
+        notes: tl.notes || null,
+      })
+    }
+  }
+
+  // Extract settings
+  if (parsed.settings && typeof parsed.settings === 'object') {
+    history.settings = {
+      medAlarms: !!parsed.settings.medAlarms,
+      feedAlarms: !!parsed.settings.feedAlarms,
+      soundAlerts: !!parsed.settings.soundAlerts,
+    }
+  }
+
+  // Extract activityLog: [{ timestamp, type, message }]
+  if (Array.isArray(parsed.activityLog)) {
+    for (const a of parsed.activityLog) {
+      if (!a.type || !a.message) continue
+      history.activityLog.push({
+        timestamp: a.timestamp || new Date().toISOString(),
+        type: a.type,
+        message: a.message,
+      })
+    }
+  }
+
+  return history
+}
+
+function historyCount(history) {
+  let count = 0
+  count += Object.values(history.medLog).reduce((sum, entries) => sum + Object.keys(entries).length, 0)
+  count += history.feeds.length
+  count += history.notes.length
+  count += history.trackerLogs.length
+  count += history.activityLog.length
+  if (history.settings) count++
+  return count
+}
+
 export function validateImport(rawText) {
   const errors = []
 
@@ -89,14 +205,18 @@ export function validateImport(rawText) {
     return { valid: false, errors: ['Expected a JSON object with medications, trackers, etc.'], data: null }
   }
 
+  const backup = isBackupFile(parsed)
+
   const result = {
     babyName: parsed.baby_name || parsed.babyName || null,
+    isBackup: backup,
     medications: [],
     trackers: [],
     weights: [],
     feedSchedule: null,
     feedPlan: null,
-    notes: []
+    notes: [],
+    history: null,
   }
 
   // Validate medications
@@ -151,7 +271,7 @@ export function validateImport(rawText) {
     })
   }
 
-  // Validate trackers
+  // Validate trackers (preserve id for backup mode)
   const trackers = parsed.trackers || []
   if (Array.isArray(trackers)) {
     trackers.forEach((t, i) => {
@@ -160,6 +280,7 @@ export function validateImport(rawText) {
         return
       }
       result.trackers.push({
+        id: backup ? (t.id || null) : undefined,
         name: t.name.trim(),
         icon: (t.icon || '').trim() || null,
         unit: (t.unit || '').trim() || null,
@@ -207,27 +328,29 @@ export function validateImport(rawText) {
     }
   }
 
-  // Feed plan as note
-  const feedPlan = parsed.feed_plan || parsed.feedPlan || null
-  if (feedPlan && typeof feedPlan === 'object') {
-    const parts = []
-    if (feedPlan.type) parts.push(`Type: ${feedPlan.type}`)
-    if (feedPlan.amount) parts.push(`Amount: ${feedPlan.amount}`)
-    if (feedPlan.frequency) parts.push(`Frequency: ${feedPlan.frequency}`)
-    if (feedPlan.instructions) parts.push(`Instructions: ${feedPlan.instructions}`)
-    if (feedPlan.schedule && Array.isArray(feedPlan.schedule)) {
-      parts.push(`Schedule: ${feedPlan.schedule.join(', ')}`)
+  // Feed plan as note (only for non-backup)
+  if (!backup) {
+    const feedPlan = parsed.feed_plan || parsed.feedPlan || null
+    if (feedPlan && typeof feedPlan === 'object') {
+      const parts = []
+      if (feedPlan.type) parts.push(`Type: ${feedPlan.type}`)
+      if (feedPlan.amount) parts.push(`Amount: ${feedPlan.amount}`)
+      if (feedPlan.frequency) parts.push(`Frequency: ${feedPlan.frequency}`)
+      if (feedPlan.instructions) parts.push(`Instructions: ${feedPlan.instructions}`)
+      if (feedPlan.schedule && Array.isArray(feedPlan.schedule)) {
+        parts.push(`Schedule: ${feedPlan.schedule.join(', ')}`)
+      }
+      if (parts.length > 0) {
+        result.feedPlan = `FEEDING PLAN (from discharge papers)\n${parts.join('\n')}`
+      }
+    } else if (typeof feedPlan === 'string' && feedPlan.trim()) {
+      result.feedPlan = `FEEDING PLAN (from discharge papers)\n${feedPlan.trim()}`
     }
-    if (parts.length > 0) {
-      result.feedPlan = `FEEDING PLAN (from discharge papers)\n${parts.join('\n')}`
-    }
-  } else if (typeof feedPlan === 'string' && feedPlan.trim()) {
-    result.feedPlan = `FEEDING PLAN (from discharge papers)\n${feedPlan.trim()}`
   }
 
-  // Notes
+  // Notes — for backups, historical notes go into history.notes; for AI setup, flatten to strings
   const notes = parsed.notes || []
-  if (Array.isArray(notes)) {
+  if (Array.isArray(notes) && !backup) {
     notes.forEach(n => {
       const text = typeof n === 'string' ? n : (n.text || n.content || '')
       if (text.trim()) {
@@ -236,8 +359,15 @@ export function validateImport(rawText) {
     })
   }
 
+  // Extract history for backup files
+  if (backup) {
+    result.history = extractHistory(parsed)
+  }
+
+  const histCount = result.history ? historyCount(result.history) : 0
   const hasData = result.medications.length > 0 || result.trackers.length > 0 ||
-    result.weights.length > 0 || result.feedSchedule || result.feedPlan || result.notes.length > 0
+    result.weights.length > 0 || result.feedSchedule || result.feedPlan || result.notes.length > 0 ||
+    histCount > 0
 
   if (!hasData && errors.length === 0) {
     errors.push('No medications, trackers, weights, or notes found in the JSON. Make sure the AI formatted its response correctly.')

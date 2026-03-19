@@ -590,6 +590,8 @@ export function TrackerProvider({ children }) {
       getTimeSlots, getNextMed, getMedStats, getTodayFeeds, getLatestWeight, getTodayNotes,
       // Export
       exportData,
+      // Reload all data from DB
+      reload: loadAllData,
     }}>
       {children}
     </TrackerContext.Provider>
@@ -631,6 +633,7 @@ const EMPTY_TRACKER = {
   getLatestWeight: () => null,
   getTodayNotes: () => [],
   exportData: () => {},
+  reload: async () => {},
 }
 
 export function useTracker() {

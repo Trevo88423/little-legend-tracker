@@ -54,7 +54,7 @@ export default function ImportStep({ onNext, onBack }) {
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontWeight: 800, fontSize: '1rem', marginBottom: 4 }}>Import your data</div>
         <p style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', margin: 0 }}>
-          Paste the JSON response from the AI chatbot, or upload the file.
+          Paste the JSON response from the AI chatbot, upload a file, or import an exported backup.
         </p>
       </div>
 

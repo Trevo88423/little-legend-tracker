@@ -1,11 +1,29 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTracker } from '../../contexts/TrackerContext'
+import { useFamily } from '../../contexts/FamilyContext'
+import { supabase } from '../../lib/supabase'
+import { genId } from '../../lib/idUtils'
 import { catIcons, catClasses } from '../../lib/constants'
 import { formatTime12 } from '../../lib/dateUtils'
 
+async function batchInsert(table, rows, batchSize = 500) {
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const { error } = await supabase.from(table).insert(rows.slice(i, i + batchSize))
+    if (error) throw error
+  }
+}
+
+async function batchUpsert(table, rows, batchSize = 500) {
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const { error } = await supabase.from(table).upsert(rows.slice(i, i + batchSize))
+    if (error) throw error
+  }
+}
+
 export default function PreviewStep({ data, onBack }) {
-  const { data: trackerData, saveMedication, addTracker, logWeight, addNote, saveFeedSchedule } = useTracker()
+  const { data: trackerData, saveMedication, addTracker, logWeight, addNote, saveFeedSchedule, reload } = useTracker()
+  const { family, activeChild } = useFamily()
   const existingMedIds = new Set(trackerData.medications.map(m => m.id))
   const navigate = useNavigate()
 
@@ -15,6 +33,7 @@ export default function PreviewStep({ data, onBack }) {
   const [feedSchedule, setFeedSchedule] = useState(data.feedSchedule)
   const [feedPlan, setFeedPlan] = useState(data.feedPlan)
   const [notes, setNotes] = useState(data.notes)
+  const [includeHistory, setIncludeHistory] = useState(!!data.isBackup)
   const [importing, setImporting] = useState(false)
   const [done, setDone] = useState(false)
   const [importResult, setImportResult] = useState(null)
@@ -25,11 +44,14 @@ export default function PreviewStep({ data, onBack }) {
   function removeNote(i) { setNotes(prev => prev.filter((_, idx) => idx !== i)) }
   function removeFeedPlan() { setFeedPlan(null) }
 
-  const totalItems = meds.length + trackers.length + weights.length + notes.length + (feedSchedule ? 1 : 0) + (feedPlan ? 1 : 0)
+  const history = data.history
+  const medLogCount = history ? Object.values(history.medLog).reduce((sum, e) => sum + Object.keys(e).length, 0) : 0
+  const historyItemCount = history ? (medLogCount + history.feeds.length + history.notes.length + history.trackerLogs.length + history.activityLog.length + (history.settings ? 1 : 0)) : 0
+  const totalItems = meds.length + trackers.length + weights.length + notes.length + (feedSchedule ? 1 : 0) + (feedPlan ? 1 : 0) + (includeHistory ? historyItemCount : 0)
 
   async function handleImport() {
     setImporting(true)
-    const counts = { medsAdded: 0, medsUpdated: 0, trackers: 0, weights: 0, feedSchedule: 0, notes: 0 }
+    const counts = { medsAdded: 0, medsUpdated: 0, trackers: 0, weights: 0, feedSchedule: 0, notes: 0, medLogs: 0, feeds: 0, historyNotes: 0, trackerLogs: 0, settings: false, activityLog: 0 }
 
     try {
       // Import medications
@@ -82,10 +104,126 @@ export default function PreviewStep({ data, onBack }) {
         counts.notes++
       }
 
-      // Import notes
+      // Import notes (AI setup mode - flat strings)
       for (const n of notes) {
         await addNote(n)
         counts.notes++
+      }
+
+      // Import history data if this is a backup
+      if (includeHistory && history) {
+        const familyId = family.id
+        const childId = activeChild.id
+        const fq = { family_id: familyId, child_id: childId }
+
+        // Build medication name -> old ID mapping from the exported data
+        const oldIdToName = {}
+        for (const med of data.medications) {
+          if (med.id) oldIdToName[med.id] = med.name
+        }
+
+        // Query fresh medications from DB to get new IDs
+        const { data: freshMeds } = await supabase.from('medications').select('id, name')
+          .eq('family_id', familyId).eq('child_id', childId).eq('active', true)
+        const nameToNewId = {}
+        for (const m of (freshMeds || [])) {
+          nameToNewId[m.name] = m.id
+        }
+
+        // Build tracker old ID -> name mapping
+        const oldTrackerIdToName = {}
+        for (const t of data.trackers) {
+          if (t.id) oldTrackerIdToName[t.id] = t.name
+        }
+
+        // Query fresh trackers from DB
+        const { data: freshTrackers } = await supabase.from('trackers').select('id, name')
+          .eq('family_id', familyId).eq('child_id', childId)
+        const trackerNameToNewId = {}
+        for (const t of (freshTrackers || [])) {
+          trackerNameToNewId[t.name] = t.id
+        }
+
+        // Import med logs
+        const medLogRows = []
+        for (const [date, entries] of Object.entries(history.medLog)) {
+          for (const [medKey, entry] of Object.entries(entries)) {
+            const lastUnderscore = medKey.lastIndexOf('_')
+            if (lastUnderscore === -1) continue
+            const oldMedId = medKey.substring(0, lastUnderscore)
+            const time = medKey.substring(lastUnderscore + 1)
+            const medName = oldIdToName[oldMedId]
+            const newMedId = medName ? nameToNewId[medName] : null
+            if (!newMedId) continue
+            const newMedKey = newMedId + '_' + time
+            medLogRows.push({
+              ...fq, date, med_key: newMedKey, medication_id: newMedId,
+              given_at: entry.givenAt, given_by: entry.givenBy,
+            })
+          }
+        }
+        if (medLogRows.length > 0) {
+          await batchUpsert('med_logs', medLogRows)
+          counts.medLogs = medLogRows.length
+        }
+
+        // Import feeds
+        const feedRows = history.feeds.map(f => ({
+          id: genId(), ...fq, date: f.date, time: f.time,
+          type: f.type, amount: f.amount, notes: f.notes, logged_by: f.loggedBy,
+        }))
+        if (feedRows.length > 0) {
+          await batchInsert('feeds', feedRows)
+          counts.feeds = feedRows.length
+        }
+
+        // Import historical notes
+        const noteRows = history.notes.map(n => ({
+          id: genId(), ...fq, date: n.date, time: n.time,
+          text: n.text, logged_by: n.loggedBy,
+        }))
+        if (noteRows.length > 0) {
+          await batchInsert('notes', noteRows)
+          counts.historyNotes = noteRows.length
+        }
+
+        // Import tracker logs
+        const trackerLogRows = []
+        for (const tl of history.trackerLogs) {
+          const trackerName = oldTrackerIdToName[tl.trackerId]
+          const newTrackerId = trackerName ? trackerNameToNewId[trackerName] : null
+          if (!newTrackerId) continue
+          trackerLogRows.push({
+            id: genId(), ...fq, tracker_id: newTrackerId,
+            date: tl.date, time: tl.time, value: tl.value, notes: tl.notes,
+          })
+        }
+        if (trackerLogRows.length > 0) {
+          await batchInsert('tracker_logs', trackerLogRows)
+          counts.trackerLogs = trackerLogRows.length
+        }
+
+        // Import settings
+        if (history.settings) {
+          await supabase.from('settings').update({
+            med_alarms: history.settings.medAlarms,
+            feed_alarms: history.settings.feedAlarms,
+            sound_alerts: history.settings.soundAlerts,
+          }).match(fq)
+          counts.settings = true
+        }
+
+        // Import activity log
+        const activityRows = history.activityLog.map(a => ({
+          ...fq, timestamp: a.timestamp, type: a.type, message: a.message,
+        }))
+        if (activityRows.length > 0) {
+          await batchInsert('activity_log', activityRows)
+          counts.activityLog = activityRows.length
+        }
+
+        // Reload all data from DB
+        await reload()
       }
 
       setImportResult(counts)
@@ -110,6 +248,17 @@ export default function PreviewStep({ data, onBack }) {
           {importResult.weights > 0 && <div>{importResult.weights} weight{importResult.weights !== 1 ? 's' : ''} logged</div>}
           {importResult.feedSchedule > 0 && <div>Feed schedule imported</div>}
           {importResult.notes > 0 && <div>{importResult.notes} note{importResult.notes !== 1 ? 's' : ''} added</div>}
+          {(importResult.medLogs > 0 || importResult.feeds > 0 || importResult.historyNotes > 0 || importResult.trackerLogs > 0 || importResult.settings || importResult.activityLog > 0) && (
+            <>
+              <div style={{ borderTop: '1px solid var(--color-border)', margin: '8px 0', paddingTop: 8, fontWeight: 700, color: 'var(--color-text)' }}>History Restored</div>
+              {importResult.medLogs > 0 && <div>{importResult.medLogs} medication log{importResult.medLogs !== 1 ? 's' : ''}</div>}
+              {importResult.feeds > 0 && <div>{importResult.feeds} feed record{importResult.feeds !== 1 ? 's' : ''}</div>}
+              {importResult.historyNotes > 0 && <div>{importResult.historyNotes} note{importResult.historyNotes !== 1 ? 's' : ''}</div>}
+              {importResult.trackerLogs > 0 && <div>{importResult.trackerLogs} tracker log{importResult.trackerLogs !== 1 ? 's' : ''}</div>}
+              {importResult.settings && <div>Settings restored</div>}
+              {importResult.activityLog > 0 && <div>{importResult.activityLog} activity log entr{importResult.activityLog !== 1 ? 'ies' : 'y'}</div>}
+            </>
+          )}
         </div>
         <button className="t-btn t-btn-primary" onClick={() => navigate('/app/dashboard')}>
           Go to Dashboard
@@ -268,6 +417,29 @@ export default function PreviewStep({ data, onBack }) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* History section for backup files */}
+      {data.isBackup && history && historyItemCount > 0 && (
+        <div className="t-card t-preview-section">
+          <div className="t-card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>History Data</span>
+            <label style={{ fontSize: '0.75rem', fontWeight: 400, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={includeHistory} onChange={e => setIncludeHistory(e.target.checked)} />
+              Include
+            </label>
+          </div>
+          {includeHistory && (
+            <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>
+              {medLogCount > 0 && <div>{medLogCount} medication log{medLogCount !== 1 ? 's' : ''}</div>}
+              {history.feeds.length > 0 && <div>{history.feeds.length} feed record{history.feeds.length !== 1 ? 's' : ''}</div>}
+              {history.notes.length > 0 && <div>{history.notes.length} note{history.notes.length !== 1 ? 's' : ''}</div>}
+              {history.trackerLogs.length > 0 && <div>{history.trackerLogs.length} tracker log{history.trackerLogs.length !== 1 ? 's' : ''}</div>}
+              {history.activityLog.length > 0 && <div>{history.activityLog.length} activity log entr{history.activityLog.length !== 1 ? 'ies' : 'y'}</div>}
+              {history.settings && <div>Settings</div>}
+            </div>
+          )}
         </div>
       )}
 
