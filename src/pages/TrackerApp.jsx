@@ -68,7 +68,7 @@ function SetupFallback({ user, navigate }) {
               <input id="setup-child" type="text" value={childName} onChange={e => setChildName(e.target.value)} placeholder="Your little legend's name" required />
             </div>
             <div className="form-group">
-              <label htmlFor="setup-dob">Date of Birth (optional)</label>
+              <label htmlFor="setup-dob">Child's Date of Birth (optional)</label>
               <input id="setup-dob" type="date" value={childDob} onChange={e => setChildDob(e.target.value)} />
             </div>
             <div className="form-group">

@@ -119,7 +119,7 @@ export default function Signup() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="childDob">Date of Birth (optional)</label>
+            <label htmlFor="childDob">Child's Date of Birth (optional)</label>
             <input
               id="childDob"
               type="date"
