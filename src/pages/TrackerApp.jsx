@@ -142,6 +142,7 @@ const tabs = [
   { label: 'Feeding', path: 'feeding' },
   { label: 'Weight', path: 'weight' },
   { label: 'Notes', path: 'notes' },
+  { label: 'Contacts', path: 'contacts' },
   { label: 'Tracking', path: 'tracking' },
   { label: 'History', path: 'history' },
   { label: 'Settings', path: 'settings' },

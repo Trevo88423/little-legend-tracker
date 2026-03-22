@@ -65,6 +65,16 @@ When ready, output a JSON object with this exact format. Only include sections t
     "frequency": "How often",
     "instructions": "Special feeding instructions"
   },
+  "contacts": [
+    {
+      "name": "Dr Smith",
+      "role": "Cardiologist|Paediatrician|GP|Surgeon|Pharmacy|Hospital|Therapist|Nurse|Dietitian|Other",
+      "phone": "02 1234 5678",
+      "email": "optional@email.com",
+      "location": "Westmead Children's Hospital",
+      "notes": "Rooms on Level 2, see every 3 months"
+    }
+  ],
   "notes": ["Any important notes from the source"]
 }
 
@@ -79,6 +89,7 @@ Rules:
 - Weight value in kg
 - Include ALL medications mentioned
 - If unsure about a category, use "other"
+- Contact role must be one of: Cardiologist, Paediatrician, GP, Surgeon, Pharmacy, Hospital, Therapist, Nurse, Dietitian, Other
 - If a medication is PRN / as-needed, put "as needed" in instructions and set times to an empty array []
 - For purpose, use plain parent-friendly language (e.g. "helps the heart pump better" not "afterload reduction")
 - dose_amount is the numeric dose per administration (e.g. 2.5 from "2.5mL twice daily")
@@ -190,6 +201,7 @@ export default function PromptStep({ onNext, onBack }) {
           <li style={{ marginBottom: 2 }}>Photo of a prescription label/bottle &rarr; adds medication with supply &amp; expiry tracking</li>
           <li style={{ marginBottom: 2 }}>Photo of the clinic whiteboard &rarr; adds today&apos;s weight</li>
           <li style={{ marginBottom: 2 }}>Photo of a feeding plan update &rarr; sets up feed schedule with reminders</li>
+          <li>Discharge papers with team contacts &rarr; imports all medical contacts</li>
           <li>&ldquo;We started tracking oxygen sats every 4 hours&rdquo; &rarr; adds a tracker</li>
         </ul>
       </div>

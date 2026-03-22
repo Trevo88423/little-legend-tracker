@@ -19,6 +19,7 @@ export function TrackerProvider({ children }) {
     trackers: [],
     trackerLogs: [],
     notes: [],
+    contacts: [],
     settings: { medAlarms: true, feedAlarms: false, soundAlerts: false },
     activityLog: [],
   })
@@ -42,6 +43,7 @@ export function TrackerProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'medications', filter: `family_id=eq.${familyId}` }, () => loadMedications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_log', filter: `family_id=eq.${familyId}` }, () => loadActivityLog())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tracker_logs', filter: `family_id=eq.${familyId}` }, () => loadTrackerLogs())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contacts', filter: `family_id=eq.${familyId}` }, () => loadContacts())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `family_id=eq.${familyId}` }, () => loadSettings())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'feed_schedules', filter: `family_id=eq.${familyId}` }, () => loadFeedSchedule())
       .subscribe()
@@ -56,7 +58,7 @@ export function TrackerProvider({ children }) {
     try {
       await Promise.all([
         loadMedications(), loadMedLogs(), loadFeeds(), loadFeedSchedule(), loadWeights(),
-        loadNotes(), loadTrackers(), loadTrackerLogs(), loadSettings(), loadActivityLog(),
+        loadNotes(), loadTrackers(), loadTrackerLogs(), loadContacts(), loadSettings(), loadActivityLog(),
       ])
     } catch (err) {
       console.error('Failed to load data:', err)
@@ -160,6 +162,18 @@ export function TrackerProvider({ children }) {
       trackerLogs: (rows || []).map(l => ({
         id: l.id, trackerId: l.tracker_id, date: l.date, time: l.time,
         value: l.value, notes: l.notes
+      }))
+    }))
+  }
+
+  async function loadContacts() {
+    const { data: rows } = await supabase.from('contacts').select('*')
+      .eq('family_id', familyId).eq('child_id', childId).order('name')
+    setData(prev => ({
+      ...prev,
+      contacts: (rows || []).map(c => ({
+        id: c.id, name: c.name, role: c.role, phone: c.phone,
+        email: c.email, location: c.location, notes: c.notes,
       }))
     }))
   }
@@ -391,6 +405,45 @@ export function TrackerProvider({ children }) {
     logActivity('tracker', `${tracker.icon} ${tracker.name}: ${value}${tracker.unit || ''}${notes ? ' \u2014 ' + notes : ''} \u2014 ${loggerName}`)
   }
 
+  // ==================== CONTACTS ====================
+  async function addContact(contactData) {
+    const id = genId()
+    const newContact = {
+      id, name: contactData.name.trim(), role: contactData.role || 'Other',
+      phone: contactData.phone?.trim() || null, email: contactData.email?.trim() || null,
+      location: contactData.location?.trim() || null, notes: contactData.notes?.trim() || null,
+    }
+    setData(prev => ({ ...prev, contacts: [...prev.contacts, newContact].sort((a, b) => a.name.localeCompare(b.name)) }))
+    await supabase.from('contacts').insert({
+      id, ...fq(), name: newContact.name, role: newContact.role,
+      phone: newContact.phone, email: newContact.email,
+      location: newContact.location, notes: newContact.notes,
+    })
+    logActivity('contact', `Added contact: ${newContact.name} (${newContact.role}) — ${loggerName}`)
+  }
+
+  async function updateContact(id, contactData) {
+    const updated = {
+      name: contactData.name.trim(), role: contactData.role || 'Other',
+      phone: contactData.phone?.trim() || null, email: contactData.email?.trim() || null,
+      location: contactData.location?.trim() || null, notes: contactData.notes?.trim() || null,
+    }
+    setData(prev => ({
+      ...prev,
+      contacts: prev.contacts.map(c => c.id === id ? { ...c, ...updated } : c)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    }))
+    await supabase.from('contacts').update(updated).eq('id', id)
+    logActivity('contact', `Updated contact: ${updated.name} — ${loggerName}`)
+  }
+
+  async function deleteContact(id) {
+    const contact = data.contacts.find(c => c.id === id)
+    setData(prev => ({ ...prev, contacts: prev.contacts.filter(c => c.id !== id) }))
+    await supabase.from('contacts').delete().eq('id', id)
+    if (contact) logActivity('contact', `Deleted contact: ${contact.name} — ${loggerName}`)
+  }
+
   // ==================== MEDICATIONS SETTINGS ====================
   async function saveMedication(medData) {
     const { id: medId, name, purpose, dose, category, times, instructions,
@@ -582,6 +635,8 @@ export function TrackerProvider({ children }) {
       addNote, deleteNote,
       // Tracker operations
       addTracker, deleteTracker, logTrackerEntry,
+      // Contact operations
+      addContact, updateContact, deleteContact,
       // Settings
       toggleSetting,
       // Activity
@@ -600,7 +655,7 @@ export function TrackerProvider({ children }) {
 
 const EMPTY_TRACKER = {
   loading: true,
-  data: { medications: [], medLog: {}, feeds: [], feedSchedule: null, weights: [], trackers: [], trackerLogs: [], notes: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [] },
+  data: { medications: [], medLog: {}, feeds: [], feedSchedule: null, weights: [], trackers: [], trackerLogs: [], notes: [], contacts: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [] },
   loggerName: '',
   isMedGiven: () => false,
   toggleSetting: () => {},
@@ -625,6 +680,9 @@ const EMPTY_TRACKER = {
   deleteTracker: async () => {},
   logTrackerEntry: async () => {},
   deleteTrackerLog: async () => {},
+  addContact: async () => {},
+  updateContact: async () => {},
+  deleteContact: async () => {},
   logActivity: async () => {},
   getTimeSlots: () => [],
   getNextMed: () => null,

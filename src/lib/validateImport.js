@@ -2,6 +2,7 @@ const VALID_CATEGORIES = ['heart', 'diuretic', 'stomach', 'blood', 'other']
 const VALID_TRACKER_TYPES = ['number', 'counter', 'note']
 const VALID_FEED_TYPES = ['bottle', 'tube', 'breast']
 const VALID_SUPPLY_UNITS = ['mL', 'tablets', 'capsules', 'doses', 'puffs']
+const VALID_CONTACT_ROLES = ['Cardiologist', 'Paediatrician', 'GP', 'Surgeon', 'Pharmacy', 'Hospital', 'Therapist', 'Nurse', 'Dietitian', 'Other']
 const TIME_RE = /^\d{2}:\d{2}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -215,6 +216,7 @@ export function validateImport(rawText) {
     weights: [],
     feedSchedule: null,
     feedPlan: null,
+    contacts: [],
     notes: [],
     history: null,
   }
@@ -348,6 +350,26 @@ export function validateImport(rawText) {
     }
   }
 
+  // Validate contacts
+  const contacts = parsed.contacts || []
+  if (Array.isArray(contacts)) {
+    contacts.forEach((c, i) => {
+      if (!c.name || !c.name.trim()) {
+        errors.push(`Contact #${i + 1}: missing name`)
+        return
+      }
+      const role = c.role ? VALID_CONTACT_ROLES.find(r => r.toLowerCase() === c.role.toLowerCase().trim()) || 'Other' : 'Other'
+      result.contacts.push({
+        name: c.name.trim(),
+        role,
+        phone: (c.phone || '').trim() || null,
+        email: (c.email || '').trim() || null,
+        location: (c.location || '').trim() || null,
+        notes: (c.notes || '').trim() || null,
+      })
+    })
+  }
+
   // Notes — for backups, historical notes go into history.notes; for AI setup, flatten to strings
   const notes = parsed.notes || []
   if (Array.isArray(notes) && !backup) {
@@ -366,11 +388,11 @@ export function validateImport(rawText) {
 
   const histCount = result.history ? historyCount(result.history) : 0
   const hasData = result.medications.length > 0 || result.trackers.length > 0 ||
-    result.weights.length > 0 || result.feedSchedule || result.feedPlan || result.notes.length > 0 ||
-    histCount > 0
+    result.weights.length > 0 || result.feedSchedule || result.feedPlan || result.contacts.length > 0 ||
+    result.notes.length > 0 || histCount > 0
 
   if (!hasData && errors.length === 0) {
-    errors.push('No medications, trackers, weights, or notes found in the JSON. Make sure the AI formatted its response correctly.')
+    errors.push('No medications, trackers, weights, contacts, or notes found in the JSON. Make sure the AI formatted its response correctly.')
   }
 
   return {

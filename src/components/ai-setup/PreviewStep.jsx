@@ -22,7 +22,7 @@ async function batchUpsert(table, rows, batchSize = 500) {
 }
 
 export default function PreviewStep({ data, onBack }) {
-  const { data: trackerData, saveMedication, addTracker, logWeight, addNote, saveFeedSchedule, reload } = useTracker()
+  const { data: trackerData, saveMedication, addTracker, logWeight, addNote, saveFeedSchedule, addContact, reload } = useTracker()
   const { family, activeChild } = useFamily()
   const existingMedIds = new Set(trackerData.medications.map(m => m.id))
   const navigate = useNavigate()
@@ -32,6 +32,7 @@ export default function PreviewStep({ data, onBack }) {
   const [weights, setWeights] = useState(data.weights)
   const [feedSchedule, setFeedSchedule] = useState(data.feedSchedule)
   const [feedPlan, setFeedPlan] = useState(data.feedPlan)
+  const [contacts, setContacts] = useState(data.contacts)
   const [notes, setNotes] = useState(data.notes)
   const [includeHistory, setIncludeHistory] = useState(!!data.isBackup)
   const [importing, setImporting] = useState(false)
@@ -41,17 +42,18 @@ export default function PreviewStep({ data, onBack }) {
   function removeMed(i) { setMeds(prev => prev.filter((_, idx) => idx !== i)) }
   function removeTracker(i) { setTrackers(prev => prev.filter((_, idx) => idx !== i)) }
   function removeWeight(i) { setWeights(prev => prev.filter((_, idx) => idx !== i)) }
+  function removeContact(i) { setContacts(prev => prev.filter((_, idx) => idx !== i)) }
   function removeNote(i) { setNotes(prev => prev.filter((_, idx) => idx !== i)) }
   function removeFeedPlan() { setFeedPlan(null) }
 
   const history = data.history
   const medLogCount = history ? Object.values(history.medLog).reduce((sum, e) => sum + Object.keys(e).length, 0) : 0
   const historyItemCount = history ? (medLogCount + history.feeds.length + history.notes.length + history.trackerLogs.length + history.activityLog.length + (history.settings ? 1 : 0)) : 0
-  const totalItems = meds.length + trackers.length + weights.length + notes.length + (feedSchedule ? 1 : 0) + (feedPlan ? 1 : 0) + (includeHistory ? historyItemCount : 0)
+  const totalItems = meds.length + trackers.length + weights.length + contacts.length + notes.length + (feedSchedule ? 1 : 0) + (feedPlan ? 1 : 0) + (includeHistory ? historyItemCount : 0)
 
   async function handleImport() {
     setImporting(true)
-    const counts = { medsAdded: 0, medsUpdated: 0, trackers: 0, weights: 0, feedSchedule: 0, notes: 0, medLogs: 0, feeds: 0, historyNotes: 0, trackerLogs: 0, settings: false, activityLog: 0 }
+    const counts = { medsAdded: 0, medsUpdated: 0, trackers: 0, weights: 0, feedSchedule: 0, contacts: 0, notes: 0, medLogs: 0, feeds: 0, historyNotes: 0, trackerLogs: 0, settings: false, activityLog: 0 }
 
     try {
       // Import medications
@@ -102,6 +104,12 @@ export default function PreviewStep({ data, onBack }) {
       if (feedPlan) {
         await addNote(feedPlan)
         counts.notes++
+      }
+
+      // Import contacts
+      for (const c of contacts) {
+        await addContact(c)
+        counts.contacts++
       }
 
       // Import notes (AI setup mode - flat strings)
@@ -247,6 +255,7 @@ export default function PreviewStep({ data, onBack }) {
           {importResult.trackers > 0 && <div>{importResult.trackers} tracker{importResult.trackers !== 1 ? 's' : ''} added</div>}
           {importResult.weights > 0 && <div>{importResult.weights} weight{importResult.weights !== 1 ? 's' : ''} logged</div>}
           {importResult.feedSchedule > 0 && <div>Feed schedule imported</div>}
+          {importResult.contacts > 0 && <div>{importResult.contacts} contact{importResult.contacts !== 1 ? 's' : ''} added</div>}
           {importResult.notes > 0 && <div>{importResult.notes} note{importResult.notes !== 1 ? 's' : ''} added</div>}
           {(importResult.medLogs > 0 || importResult.feeds > 0 || importResult.historyNotes > 0 || importResult.trackerLogs > 0 || importResult.settings || importResult.activityLog > 0) && (
             <>
@@ -402,6 +411,26 @@ export default function PreviewStep({ data, onBack }) {
           <button className="t-delete-btn" onClick={removeFeedPlan} title="Remove" style={{ marginTop: 4 }}>
             x Remove
           </button>
+        </div>
+      )}
+
+      {/* Contacts */}
+      {contacts.length > 0 && (
+        <div className="t-card t-preview-section">
+          <div className="t-card-title">Contacts ({contacts.length})</div>
+          {contacts.map((c, i) => (
+            <div className="t-tracker-item" key={i}>
+              <div style={{ flex: 1 }}>
+                <div className="t-tracker-name">{c.name}</div>
+                <div className="t-tracker-last">
+                  {c.role}{c.phone ? ` · ${c.phone}` : ''}{c.location ? ` · ${c.location}` : ''}
+                </div>
+              </div>
+              <button className="t-delete-btn" onClick={() => removeContact(i)} title="Remove">
+                x
+              </button>
+            </div>
+          ))}
         </div>
       )}
 

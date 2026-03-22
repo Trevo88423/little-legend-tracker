@@ -20,6 +20,7 @@ import TrackersView from './components/trackers/TrackersView'
 import HistoryView from './components/history/HistoryView'
 import SettingsView from './components/settings/SettingsView'
 import ReportsView from './components/reports/ReportsView'
+import ContactsView from './components/contacts/ContactsView'
 import AISetupWizard from './components/ai-setup/AISetupWizard'
 import './styles/variables.css'
 
@@ -48,6 +49,7 @@ export default function App() {
               <Route path="feeding" element={<FeedingView />} />
               <Route path="weight" element={<WeightView />} />
               <Route path="notes" element={<NotesView />} />
+              <Route path="contacts" element={<ContactsView />} />
               <Route path="tracking" element={<TrackersView />} />
               <Route path="history" element={<HistoryView />} />
               <Route path="settings" element={<SettingsView />} />
