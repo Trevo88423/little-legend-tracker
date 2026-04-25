@@ -7,6 +7,8 @@ import JoinFamily from './pages/JoinFamily'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import CheckEmail from './pages/CheckEmail'
+import AuthConfirm from './pages/AuthConfirm'
+import Onboarding from './pages/Onboarding'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import TrackerApp from './pages/TrackerApp'
@@ -37,6 +39,8 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/check-email" element={<CheckEmail />} />
+          <Route path="/auth/confirm" element={<AuthConfirm />} />
+          <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
 

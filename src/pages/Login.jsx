@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link, useLocation } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { readNext } from '../lib/authNav'
 import '../styles/auth.css'
 
 export default function Login() {
   const navigate = useNavigate()
-  const location = useLocation()
-  const { signIn } = useAuth()
+  const [searchParams] = useSearchParams()
+  const { signIn, user, onboardingComplete, loading: authLoading } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -14,18 +15,38 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
 
+  const next = readNext(searchParams, '/app')
+
   useEffect(() => {
-    // Detect email confirmation redirect (PKCE code, confirmed flag, or legacy hash)
     const params = new URLSearchParams(window.location.search)
     const hash = window.location.hash
-    if (params.get('code') || params.get('confirmed') || (hash && (hash.includes('type=signup') || hash.includes('type=email')))) {
+    if (params.get('confirmed') || (hash && (hash.includes('type=signup') || hash.includes('type=email')))) {
       setConfirmed(true)
-      // Clean confirmed param from URL
       if (params.get('confirmed')) {
-        window.history.replaceState(null, '', '/login')
+        // Strip the param but keep `next` if present
+        params.delete('confirmed')
+        const qs = params.toString()
+        window.history.replaceState(null, '', '/login' + (qs ? `?${qs}` : ''))
       }
     }
+    const errParam = params.get('error')
+    if (errParam) {
+      setError(decodeURIComponent(errParam))
+    }
   }, [])
+
+  // Already signed in — bounce to next (or onboarding if not done).
+  // null means status unknown (migration may not be applied yet); fall through
+  // to `next` and let ProtectedRoute / FamilyContext handle any orphan state.
+  useEffect(() => {
+    if (authLoading) return
+    if (!user) return
+    if (onboardingComplete === false) {
+      navigate(`/onboarding?next=${encodeURIComponent(next)}`, { replace: true })
+    } else {
+      navigate(next, { replace: true })
+    }
+  }, [authLoading, user, onboardingComplete, next, navigate])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -34,10 +55,9 @@ export default function Login() {
 
     try {
       await signIn(email.trim(), password)
-      navigate('/app')
+      // Navigation handled by the effect above once onboarding status loads
     } catch (err) {
       setError(err.message || 'Failed to sign in')
-    } finally {
       setLoading(false)
     }
   }
@@ -98,7 +118,10 @@ export default function Login() {
 
         <div className="auth-divider">or</div>
 
-        <Link to="/signup" className="auth-link auth-link-primary">
+        <Link
+          to={`/signup${searchParams.toString() ? `?${searchParams.toString()}` : ''}`}
+          className="auth-link auth-link-primary"
+        >
           Create a new account
         </Link>
         <br />

@@ -17,7 +17,8 @@ export default function CheckEmail() {
             We've sent a verification email to <strong>{email}</strong>.
           </p>
           <p>
-            Click the link in the email to confirm your account, then come back here to sign in.
+            Click the link in the email to finish setting up your account &mdash; you'll be
+            taken straight to the next step.
           </p>
           <p className="auth-check-email-tip">
             Can't find it? Check your spam or junk folder.
@@ -25,7 +26,7 @@ export default function CheckEmail() {
         </div>
 
         <Link to="/login" className="auth-submit-btn" style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: '24px' }}>
-          Go to Login
+          Already confirmed? Sign in
         </Link>
 
         <Link to="/" className="auth-link" style={{ marginTop: '16px' }}>

@@ -1,268 +1,64 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
 import '../styles/auth.css'
 
+// Joining an existing family is now an authenticated, rate-limited action.
+// /join is a small router: send authenticated users to /onboarding?mode=join
+// and unauthenticated users to /login (or /signup) with an appropriate `next`.
 export default function JoinFamily() {
   const navigate = useNavigate()
-  const { user, signUp } = useAuth()
+  const { user, loading, onboardingComplete } = useAuth()
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [familyName, setFamilyName] = useState('')
-  const [familyPin, setFamilyPin] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  // Where /onboarding should send the user after they finish joining
+  const joinDest = '/onboarding?mode=join'
+  const nextParam = encodeURIComponent(joinDest)
 
-  // Email disambiguation step (rare: multiple families share same PIN + name)
-  const [matchedFamilyIds, setMatchedFamilyIds] = useState([])
-  const [showEmailStep, setShowEmailStep] = useState(false)
-  const [partnerEmail, setPartnerEmail] = useState('')
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setError('')
-
-    if (!/^\d{6,8}$/.test(familyPin)) {
-      setError('Family PIN must be 6-8 digits')
-      return
-    }
-
-    setLoading(true)
-
-    try {
-      if (!user) {
-        // Not logged in: sign up with join metadata — DB trigger handles the rest
-        const { user: newUser, session } = await signUp(email.trim(), password, {
-          flow: 'join',
-          display_name: displayName.trim(),
-          family_name: familyName.trim(),
-          family_pin: familyPin,
-        })
-        if (!newUser) throw new Error('Signup failed - no user returned')
-
-        if (session) {
-          // Email confirmation not required — trigger already fired on INSERT
-          navigate('/app')
-        } else {
-          // Email confirmation required — trigger fires when email confirmed
-          navigate('/check-email', { state: { email: email.trim() } })
-        }
-        return
+  useEffect(() => {
+    if (loading) return
+    if (user) {
+      // Already signed in — go straight to the join tab. Onboarding will
+      // redirect to /app if they're already in a family.
+      if (onboardingComplete) {
+        navigate('/app', { replace: true })
+      } else {
+        navigate(joinDest, { replace: true })
       }
-
-      // Already logged in: interactive PIN verification + join
-      await verifyAndJoin()
-    } catch (err) {
-      setError(err.message || 'Failed to join family')
-      setLoading(false)
     }
-  }
+  }, [loading, user, onboardingComplete, navigate])
 
-  async function verifyAndJoin() {
-    const { data: families, error: rpcError } = await supabase
-      .rpc('verify_family_pin', {
-        pin_input: familyPin,
-        family_name_input: familyName.trim(),
-      })
-
-    if (rpcError) throw rpcError
-    if (!families || families.length === 0) {
-      throw new Error('No family found with that PIN and name. Please check and try again.')
-    }
-
-    // If multiple families match (rare PIN+name collision), ask for partner email
-    if (families.length > 1) {
-      setMatchedFamilyIds(families.map((f) => f.family_id))
-      setShowEmailStep(true)
-      setLoading(false)
-      return
-    }
-
-    // Single match - join directly
-    await joinFamily(families[0].family_id)
-  }
-
-  async function joinFamily(familyId) {
-    setLoading(true)
-    setError('')
-
-    try {
-      const { error: joinError } = await supabase.rpc('complete_join_family', {
-        p_family_id: familyId,
-        p_display_name: displayName.trim(),
-        p_pin_input: familyPin,
-      })
-      if (joinError) throw joinError
-
-      navigate('/app')
-    } catch (err) {
-      setError(err.message || 'Failed to join family')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleEmailConfirm(e) {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-
-    try {
-      const { data: familyId, error: rpcError } = await supabase
-        .rpc('confirm_family_by_member_email', {
-          p_family_ids: matchedFamilyIds,
-          p_member_email: partnerEmail.trim(),
-        })
-
-      if (rpcError) throw rpcError
-      if (!familyId) throw new Error('No family member found with that email. Please check and try again.')
-
-      await joinFamily(familyId)
-    } catch (err) {
-      setError(err.message || 'Failed to confirm family')
-      setLoading(false)
-    }
-  }
-
+  // Unauthenticated branch: explain the flow & send them to login/signup
   return (
     <div className="ll-auth-screen">
       <div className="ll-auth-card">
         <Link to="/" className="auth-back-link">&larr; Back to home</Link>
         <span className="auth-icon">&#128106;</span>
-        <h1>Join Family</h1>
+        <h1>Join a Family</h1>
         <p className="auth-subtitle">
-          Join your partner's tracker with the child's name and PIN
+          Sign in or create an account first, then you'll join your partner's tracker
+          using their child's name and PIN.
         </p>
 
-        {!showEmailStep ? (
-          <form className="ll-auth-form" onSubmit={handleSubmit}>
-            {!user && (
-              <>
-                <div className="form-group">
-                  <label htmlFor="email">Email</label>
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    required
-                    autoComplete="email"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="password">Password</label>
-                  <input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Choose a strong password"
-                    required
-                    minLength={6}
-                    autoComplete="new-password"
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="form-group">
-              <label htmlFor="displayName">Your Display Name</label>
-              <input
-                id="displayName"
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Mum, Dad, Sarah"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="familyName">Child's Name</label>
-              <input
-                id="familyName"
-                type="text"
-                value={familyName}
-                onChange={(e) => setFamilyName(e.target.value)}
-                placeholder="Your little legend's name"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="familyPin">Family PIN</label>
-              <input
-                id="familyPin"
-                type="text"
-                inputMode="numeric"
-                pattern="\d{6,8}"
-                value={familyPin}
-                onChange={(e) => setFamilyPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                placeholder="Enter the PIN from your partner"
-                required
-                maxLength={8}
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="auth-submit-btn"
-              disabled={loading}
-            >
-              {loading ? 'Joining...' : 'Join Family'}
-            </button>
-
-            {error && <p className="auth-error-msg">{error}</p>}
-          </form>
-        ) : (
-          <form className="ll-auth-form" onSubmit={handleEmailConfirm}>
-            <p className="auth-subtitle" style={{ marginBottom: 16 }}>
-              Multiple families matched. Enter your partner's email to confirm which family to join.
-            </p>
-
-            <div className="form-group">
-              <label htmlFor="partnerEmail">Partner's Email</label>
-              <input
-                id="partnerEmail"
-                type="email"
-                value={partnerEmail}
-                onChange={(e) => setPartnerEmail(e.target.value)}
-                placeholder="Your partner's email address"
-                required
-                autoComplete="off"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="auth-submit-btn"
-              disabled={loading || !partnerEmail.trim()}
-            >
-              {loading ? 'Confirming...' : 'Confirm Family'}
-            </button>
-
-            {error && <p className="auth-error-msg">{error}</p>}
-          </form>
-        )}
-
-        <div className="auth-divider">or</div>
-
-        <Link to="/signup" className="auth-link auth-link-primary">
-          Create a new family instead
-        </Link>
-        {!user && (
-          <>
-            <br />
-            <Link to="/login" className="auth-link">
-              Already have an account? Sign in
-            </Link>
-          </>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
+          <Link
+            to={`/login?next=${nextParam}`}
+            className="auth-submit-btn"
+            style={{ display: 'block', textDecoration: 'none', textAlign: 'center' }}
+          >
+            Sign in
+          </Link>
+          <Link
+            to={`/signup?next=${nextParam}`}
+            className="auth-submit-btn"
+            style={{
+              display: 'block', textDecoration: 'none', textAlign: 'center',
+              background: 'var(--color-bg)', color: 'var(--color-text-secondary)',
+              border: '2px solid var(--color-border)',
+            }}
+          >
+            Create new account
+          </Link>
+        </div>
       </div>
     </div>
   )

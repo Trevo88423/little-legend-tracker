@@ -1,10 +1,11 @@
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { FamilyProvider } from '../../contexts/FamilyContext'
 import { TrackerProvider } from '../../contexts/TrackerContext'
 
 export default function ProtectedRoute() {
-  const { user, loading } = useAuth()
+  const { user, loading, onboardingComplete } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -38,7 +39,16 @@ export default function ProtectedRoute() {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    const next = encodeURIComponent(location.pathname + location.search)
+    return <Navigate to={`/login?next=${next}`} replace />
+  }
+
+  // Onboarding gate: only redirect if we KNOW it's incomplete.
+  // null means the status query failed (e.g., migration not yet applied) — fall
+  // through to FamilyContext / SetupFallback for graceful degradation.
+  if (onboardingComplete === false) {
+    const next = encodeURIComponent(location.pathname + location.search)
+    return <Navigate to={`/onboarding?next=${next}`} replace />
   }
 
   return (

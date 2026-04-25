@@ -38,6 +38,7 @@ export default function SettingsView() {
   const [editingChild, setEditingChild] = useState(false)
   const [childName, setChildName] = useState('')
   const [childDob, setChildDob] = useState('')
+  const [childSex, setChildSex] = useState('')
   const [childSaving, setChildSaving] = useState(false)
 
   const {
@@ -383,12 +384,18 @@ export default function SettingsView() {
                     DOB: {activeChild.date_of_birth}
                   </span>
                 )}
+                {activeChild.sex && (
+                  <span style={{ marginLeft: 8, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                    Sex: {activeChild.sex === 'male' ? 'Boy' : activeChild.sex === 'female' ? 'Girl' : 'Other'}
+                  </span>
+                )}
                 <button
                   className="t-btn t-btn-secondary t-btn-small"
                   style={{ marginLeft: 8 }}
                   onClick={() => {
                     setChildName(activeChild.name)
                     setChildDob(activeChild.date_of_birth || '')
+                    setChildSex(activeChild.sex || '')
                     setEditingChild(true)
                   }}
                 >
@@ -414,6 +421,21 @@ export default function SettingsView() {
                     onChange={e => setChildDob(e.target.value)}
                   />
                 </div>
+                <div className="t-form-row" style={{ marginBottom: 8 }}>
+                  <label style={{ fontWeight: 700, fontSize: '0.78rem' }}>Sex</label>
+                  <select
+                    value={childSex}
+                    onChange={e => setChildSex(e.target.value)}
+                  >
+                    <option value="">Prefer not to say</option>
+                    <option value="male">Boy</option>
+                    <option value="female">Girl</option>
+                    <option value="other">Other / intersex</option>
+                  </select>
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginBottom: 8, lineHeight: 1.4 }}>
+                  Used to overlay WHO weight-for-age percentile bands on the growth chart.
+                </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button
                     className="t-btn t-btn-secondary t-btn-small"
@@ -431,6 +453,7 @@ export default function SettingsView() {
                         await updateChild(activeChild.id, {
                           name: childName.trim(),
                           date_of_birth: childDob || null,
+                          sex: childSex || null,
                         })
                         setEditingChild(false)
                       } catch (err) {

@@ -1,54 +1,42 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { readNext } from '../lib/authNav'
 import '../styles/auth.css'
 
 export default function Signup() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { signUp } = useAuth()
+  const next = readNext(searchParams, '/app')
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [childName, setChildName] = useState('')
-  const [childDob, setChildDob] = useState('')
-  const [familyPin, setFamilyPin] = useState('')
   const [agreed, setAgreed] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  function validatePin(pin) {
-    return /^\d{6,8}$/.test(pin)
-  }
-
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
-
-    if (!validatePin(familyPin)) {
-      setError('Family PIN must be 6-8 digits')
-      return
-    }
-
     setLoading(true)
 
     try {
-      // Sign up with onboarding data in metadata — DB trigger handles the rest
       const { user, session } = await signUp(email.trim(), password, {
         flow: 'signup',
         display_name: displayName.trim(),
-        child_name: childName.trim(),
-        child_dob: childDob || null,
-        family_name: childName.trim(),
-        family_pin: familyPin,
       })
       if (!user) throw new Error('Signup failed - no user returned')
 
+      const onboardingUrl = `/onboarding?next=${encodeURIComponent(next)}`
+
       if (session) {
-        // Email confirmation not required — trigger already fired on INSERT
-        navigate('/app')
+        // Email confirmation disabled — straight to onboarding
+        navigate(onboardingUrl, { replace: true })
       } else {
-        // Email confirmation required — trigger fires when email confirmed
+        // Email confirmation required — link in email lands on /auth/confirm
+        // which handles the OTP and forwards to /onboarding
         navigate('/check-email', { state: { email: email.trim() } })
       }
     } catch (err) {
@@ -106,43 +94,6 @@ export default function Signup() {
             />
           </div>
 
-          <div className="form-group">
-            <label htmlFor="childName">Child's Name</label>
-            <input
-              id="childName"
-              type="text"
-              value={childName}
-              onChange={(e) => setChildName(e.target.value)}
-              placeholder="Your little legend's name"
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="childDob">Child's Date of Birth (optional)</label>
-            <input
-              id="childDob"
-              type="date"
-              value={childDob}
-              onChange={(e) => setChildDob(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="familyPin">Family PIN (6-8 digits)</label>
-            <input
-              id="familyPin"
-              type="text"
-              inputMode="numeric"
-              pattern="\d{6,8}"
-              value={familyPin}
-              onChange={(e) => setFamilyPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-              placeholder="Used by partner to join"
-              required
-              maxLength={8}
-            />
-          </div>
-
           <label className="auth-consent">
             <input
               type="checkbox"
@@ -169,7 +120,11 @@ export default function Signup() {
           {error && <p className="auth-error-msg">{error}</p>}
         </form>
 
-        <Link to="/login" className="auth-link">
+        <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: 12, lineHeight: 1.4, textAlign: 'center' }}>
+          You'll set up your child's details after confirming your email.
+        </p>
+
+        <Link to={`/login${searchParams.toString() ? `?${searchParams.toString()}` : ''}`} className="auth-link">
           Already have an account? <span className="auth-link-primary">Sign in</span>
         </Link>
       </div>
