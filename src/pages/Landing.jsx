@@ -68,6 +68,41 @@ export default function Landing() {
 
       <div className="ll-landing-content">
 
+        {/* See it in action */}
+        <div className="ll-section ll-screenshot-section">
+          <div className="ll-section-title">&#128241; See It In Action</div>
+          <h2>This Is Matteo's Real Dashboard</h2>
+          <p style={{ marginBottom: '24px' }}>
+            Not a mockup. Not stock data. The actual app his parents open at 6am, 2pm, and 10pm to keep his
+            heart medications on track.
+          </p>
+          <div className="ll-screenshot-frame">
+            <img
+              src="/images/dashboard-screenshot.jpg"
+              alt="Matteo's dashboard showing next medication, supply alert, today's medication timeline, and feeding stats"
+              loading="lazy"
+            />
+          </div>
+          <div className="ll-screenshot-callouts">
+            <div className="ll-callout">
+              <strong>Supply alerts</strong>
+              <span>Captopril expires in 3 days &mdash; reorder reminder right at the top</span>
+            </div>
+            <div className="ll-callout">
+              <strong>Next med, big and clear</strong>
+              <span>One glance tells you what's coming and when, even at 3am</span>
+            </div>
+            <div className="ll-callout">
+              <strong>Today at a glance</strong>
+              <span>5 of 10 doses given, 3 feeds, 370mL total &mdash; before you've finished your coffee</span>
+            </div>
+            <div className="ll-callout">
+              <strong>Crossed-off timeline</strong>
+              <span>Visual proof of every dose given, so the other parent knows instantly</span>
+            </div>
+          </div>
+        </div>
+
         {/* Why Section */}
         <div className="ll-section">
           <div className="ll-section-title">&#128149; Why Little Legend Tracker</div>
