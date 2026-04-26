@@ -33,9 +33,13 @@ export default function TrackersView() {
     return `Latest: ${lastLog.value}${tracker?.unit || ''} at ${formatTime12(lastLog.time)}`
   }
 
-  function handleTrackerClick(tracker) {
+  async function handleTrackerClick(tracker) {
     if (tracker.type === 'counter') {
-      logTrackerEntry(tracker.id, now24(), '1', '')
+      try {
+        await logTrackerEntry(tracker.id, now24(), '1', '')
+      } catch (err) {
+        window.alert(`Couldn't log entry: ${err.message || 'unknown error'}`)
+      }
     } else {
       setShowLogModal(tracker)
       setLogTime(now24())
@@ -47,7 +51,12 @@ export default function TrackersView() {
   async function handleAddTracker(e) {
     e.preventDefault()
     if (!newName.trim()) return
-    await addTracker(newName, newIcon, newUnit, newType)
+    try {
+      await addTracker(newName, newIcon, newUnit, newType)
+    } catch (err) {
+      window.alert(`Couldn't save tracker: ${err.message || 'unknown error'}`)
+      return
+    }
     setNewName('')
     setNewIcon('')
     setNewUnit('')
@@ -58,13 +67,21 @@ export default function TrackersView() {
   async function handleLogEntry(e) {
     e.preventDefault()
     if (!showLogModal || !logValue) return
-    await logTrackerEntry(showLogModal.id, logTime, logValue, logNotes)
+    try {
+      await logTrackerEntry(showLogModal.id, logTime, logValue, logNotes)
+    } catch (err) {
+      window.alert(`Couldn't log entry: ${err.message || 'unknown error'}`)
+      return
+    }
     setShowLogModal(null)
   }
 
-  function handleDelete(id) {
-    if (window.confirm('Delete this tracker and all its data?')) {
-      deleteTracker(id)
+  async function handleDelete(id) {
+    if (!window.confirm('Delete this tracker and all its data?')) return
+    try {
+      await deleteTracker(id)
+    } catch (err) {
+      window.alert(`Couldn't delete tracker: ${err.message || 'unknown error'}`)
     }
   }
 

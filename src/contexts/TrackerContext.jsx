@@ -110,6 +110,15 @@ export function TrackerProvider({ children }) {
           })
         }))
       })
+      .on('postgres_changes', sub('trackers'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          trackers: applyRowDelta({
+            list: prev.trackers, payload, childId,
+            transform: dbToTracker,
+          })
+        }))
+      })
       .on('postgres_changes', sub('tracker_logs'), (payload) => {
         setData(prev => ({
           ...prev,
@@ -449,7 +458,8 @@ export function TrackerProvider({ children }) {
     const id = genId()
     const newTracker = { id, name: name.trim(), icon: icon || '\uD83D\uDCDD', unit, type }
     setData(prev => ({ ...prev, trackers: [...prev.trackers, newTracker] }))
-    await supabase.from('trackers').insert({ id, ...fq(), name: name.trim(), icon: icon || '\uD83D\uDCDD', unit, type })
+    const { error } = await supabase.from('trackers').insert({ id, ...fq(), name: name.trim(), icon: icon || '\uD83D\uDCDD', unit, type })
+    if (error) { loadTrackers(); throw error }
   }
 
   async function deleteTracker(id) {
@@ -458,7 +468,8 @@ export function TrackerProvider({ children }) {
       trackers: prev.trackers.filter(t => t.id !== id),
       trackerLogs: prev.trackerLogs.filter(l => l.trackerId !== id)
     }))
-    await supabase.from('trackers').delete().eq('id', id)
+    const { error } = await supabase.from('trackers').delete().eq('id', id)
+    if (error) { loadTrackers(); loadTrackerLogs(); throw error }
   }
 
   async function logTrackerEntry(trackerId, time, value, notes) {
@@ -468,7 +479,8 @@ export function TrackerProvider({ children }) {
     const t = time || now24()
     const newLog = { id: logId, trackerId, date: today(), time: t, value, notes }
     setData(prev => ({ ...prev, trackerLogs: [...prev.trackerLogs, newLog] }))
-    await supabase.from('tracker_logs').insert({ id: logId, ...fq(), tracker_id: trackerId, date: today(), time: t, value, notes, logged_by: loggerName })
+    const { error } = await supabase.from('tracker_logs').insert({ id: logId, ...fq(), tracker_id: trackerId, date: today(), time: t, value, notes, logged_by: loggerName })
+    if (error) { loadTrackerLogs(); throw error }
     logActivity('tracker', `${tracker.icon} ${tracker.name}: ${value}${tracker.unit || ''}${notes ? ' \u2014 ' + notes : ''} \u2014 ${loggerName}`)
   }
 
