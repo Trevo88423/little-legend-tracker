@@ -36,3 +36,10 @@ skills-lock.json
 
 # Supabase temp
 supabase/.temp/
+
+# Debug screenshots and dropped image files (root only — public/ images are tracked)
+/*.jpg
+/*.jpeg
+/*.png
+/*.gif
+/*.webp
