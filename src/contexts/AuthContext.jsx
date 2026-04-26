@@ -49,21 +49,39 @@ export function AuthProvider({ children }) {
     // with the current session, then SIGNED_IN/SIGNED_OUT/TOKEN_REFRESHED as needed.
     // We do NOT call getSession() separately — that creates a second lock acquisition
     // which races with the listener and triggers "Lock broken by another request".
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    //
+    // CRITICAL: do NOT call any supabase methods (await or otherwise) inside this
+    // callback — Supabase holds an internal auth lock while the callback runs, and
+    // a database query inside it would re-enter that lock and deadlock. On page
+    // refresh with an existing session, the deadlock leaves loading=true forever.
+    // Defer all supabase work via setTimeout(0).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return
       const u = session?.user ?? null
-      userIdRef.current = u?.id ?? null
+      const newUserId = u?.id ?? null
+      const userChanged = userIdRef.current !== newUserId
+      userIdRef.current = newUserId
       setUser(u)
 
-      const status = await fetchOnboardingStatus(u?.id)
-      if (cancelled) return
-      // Only apply if the user hasn't changed since we started the fetch
-      if (userIdRef.current === (u?.id ?? null)) {
-        setOnboardingComplete(status.onboardingComplete)
-        setSetupError(status.setupError)
-      }
-
+      // Drop loading=false IMMEDIATELY on the initial event so the UI can render
+      // even if the deferred status fetch is slow.
       if (event === 'INITIAL_SESSION') setLoading(false)
+
+      // Defer the supabase query out of the listener callback to avoid the
+      // auth-lock deadlock described above.
+      if (userChanged) {
+        setTimeout(() => {
+          if (cancelled) return
+          fetchOnboardingStatus(newUserId).then(status => {
+            if (cancelled) return
+            // Race guard: only apply if user is still the same
+            if (userIdRef.current === newUserId) {
+              setOnboardingComplete(status.onboardingComplete)
+              setSetupError(status.setupError)
+            }
+          })
+        }, 0)
+      }
     })
 
     // Legacy code exchange for stale email links that bypass /auth/confirm.

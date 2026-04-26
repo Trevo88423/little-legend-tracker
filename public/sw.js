@@ -1,7 +1,7 @@
 // BUMP THIS on every deploy that ships new behavior in the JS bundle.
 // Bumping triggers the activate handler which purges old caches, and combined
 // with main.jsx's controllerchange listener forces tabs to reload with fresh code.
-const CACHE_NAME = 'little-legend-v2'
+const CACHE_NAME = 'little-legend-v3'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
