@@ -6,7 +6,7 @@ import { genId } from '../lib/idUtils'
 import {
   dbToMedication, dbToFeed, dbToWeight, dbToNote, dbToTracker, dbToTrackerLog,
   dbToContact, dbToFeedSchedule, dbToSettings, dbToActivityLog,
-  applyRowDelta, applyMedLogDelta,
+  applyRowDelta, applyMedLogDelta, medLogsToMap,
   sortByName, sortByDateDescTimeDesc, sortByDateAsc, sortByCreatedAtDesc, sortByTimestampDesc,
 } from '../lib/realtimeUtils'
 
@@ -156,10 +156,38 @@ export function TrackerProvider({ children }) {
   async function loadAllData() {
     setLoading(true)
     try {
-      await Promise.all([
-        loadMedications(), loadMedLogs(), loadFeeds(), loadFeedSchedule(), loadWeights(),
-        loadNotes(), loadTrackers(), loadTrackerLogs(), loadContacts(), loadSettings(), loadActivityLog(),
-      ])
+      // Single RPC returns all 11 collections as one JSONB blob — replaces
+      // 11 separate selects on every mount. RLS on each underlying table
+      // still enforces row-level access (function uses SECURITY INVOKER).
+      const { data: snapshot, error } = await supabase.rpc('get_tracker_snapshot', {
+        p_family_id: familyId,
+        p_child_id: childId,
+      })
+      if (error) {
+        // Fall back to individual loads if the RPC isn't available
+        // (e.g., migration 016 not yet applied in this environment).
+        console.warn('get_tracker_snapshot RPC failed, falling back to per-table loads:', error.message)
+        await Promise.all([
+          loadMedications(), loadMedLogs(), loadFeeds(), loadFeedSchedule(), loadWeights(),
+          loadNotes(), loadTrackers(), loadTrackerLogs(), loadContacts(), loadSettings(), loadActivityLog(),
+        ])
+        return
+      }
+      if (!snapshot) return
+      setData(prev => ({
+        ...prev,
+        medications: (snapshot.medications || []).map(dbToMedication),
+        medLog: medLogsToMap(snapshot.med_logs),
+        feeds: (snapshot.feeds || []).map(dbToFeed),
+        feedSchedule: snapshot.feed_schedule ? dbToFeedSchedule(snapshot.feed_schedule) : null,
+        weights: (snapshot.weights || []).map(dbToWeight),
+        notes: (snapshot.notes || []).map(dbToNote),
+        trackers: (snapshot.trackers || []).map(dbToTracker),
+        trackerLogs: (snapshot.tracker_logs || []).map(dbToTrackerLog),
+        contacts: (snapshot.contacts || []).map(dbToContact),
+        settings: snapshot.settings ? dbToSettings(snapshot.settings) : prev.settings,
+        activityLog: (snapshot.activity_log || []).map(dbToActivityLog),
+      }))
     } catch (err) {
       console.error('Failed to load data:', err)
     } finally {
@@ -176,12 +204,7 @@ export function TrackerProvider({ children }) {
   async function loadMedLogs() {
     const { data: rows } = await supabase.from('med_logs').select('*')
       .eq('family_id', familyId).eq('child_id', childId)
-    const logMap = {}
-    ;(rows || []).forEach(row => {
-      if (!logMap[row.date]) logMap[row.date] = {}
-      logMap[row.date][row.med_key] = { id: row.id, givenAt: row.given_at, givenBy: row.given_by }
-    })
-    setData(prev => ({ ...prev, medLog: logMap }))
+    setData(prev => ({ ...prev, medLog: medLogsToMap(rows) }))
   }
 
   async function loadFeeds() {

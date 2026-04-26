@@ -111,6 +111,21 @@ export function dbToActivityLog(row) {
   return { id: row.id, timestamp: row.timestamp, type: row.type, message: row.message }
 }
 
+// Build the local medLog map shape from an array of med_log rows.
+// Used by both the initial loader and the snapshot RPC consumer.
+export function medLogsToMap(rows) {
+  const map = {}
+  for (const row of rows || []) {
+    if (!map[row.date]) map[row.date] = {}
+    map[row.date][row.med_key] = {
+      id: row.id,
+      givenAt: row.given_at,
+      givenBy: row.given_by,
+    }
+  }
+  return map
+}
+
 // ===== Generic delta applier (list-shaped state) =====
 
 /**
