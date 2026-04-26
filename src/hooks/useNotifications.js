@@ -19,6 +19,9 @@ export function useNotifications() {
     if (!data.settings.medAlarms) return
 
     function checkMeds() {
+      // Skip CPU work while tab is hidden — push notifications fire from the
+      // server in that case. Re-run on visibilitychange to catch up on return.
+      if (document.hidden) return
       if (!('Notification' in window) || Notification.permission !== 'granted') return
       const now = new Date()
       const nowMin = now.getHours() * 60 + now.getMinutes()
@@ -65,11 +68,17 @@ export function useNotifications() {
       })
     }
 
+    function onVisible() { if (!document.hidden) checkMeds() }
+
     // Check every 30 seconds so we don't miss a minute boundary
     checkMeds()
     alarmRef.current = setInterval(checkMeds, 30000)
+    document.addEventListener('visibilitychange', onVisible)
 
-    return () => { if (alarmRef.current) clearInterval(alarmRef.current) }
+    return () => {
+      if (alarmRef.current) clearInterval(alarmRef.current)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [data.settings.medAlarms, data.medications, isMedGiven])
 
   function sendNotification(title, body, tag) {
@@ -102,6 +111,7 @@ export function useNotifications() {
     if (!data.settings.feedAlarms || !data.feedSchedule) return
 
     function checkFeeds() {
+      if (document.hidden) return
       if (!('Notification' in window) || Notification.permission !== 'granted') return
       const now = new Date()
       const nowMin = now.getHours() * 60 + now.getMinutes()
@@ -124,9 +134,15 @@ export function useNotifications() {
       })
     }
 
+    function onVisible() { if (!document.hidden) checkFeeds() }
+
     checkFeeds()
     const interval = setInterval(checkFeeds, 30000)
-    return () => clearInterval(interval)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [data.settings.feedAlarms, data.feedSchedule, isFeedDone])
 
   // Supply and expiry notifications (once per day)
@@ -134,6 +150,7 @@ export function useNotifications() {
     if (!data.settings.medAlarms || data.medications.length === 0) return
 
     function checkSupply() {
+      if (document.hidden) return
       if (!('Notification' in window) || Notification.permission !== 'granted') return
 
       data.medications.forEach(med => {
@@ -172,9 +189,15 @@ export function useNotifications() {
       })
     }
 
+    function onVisible() { if (!document.hidden) checkSupply() }
+
     checkSupply()
     const interval = setInterval(checkSupply, 30000)
-    return () => clearInterval(interval)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [data.settings.medAlarms, data.medications, getMedSupplyInfo])
 
   function playSound() {
