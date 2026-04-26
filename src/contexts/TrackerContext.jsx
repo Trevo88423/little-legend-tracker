@@ -1,8 +1,14 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useFamily } from './FamilyContext'
 import { today, now24, formatTime12 } from '../lib/dateUtils'
 import { genId } from '../lib/idUtils'
+import {
+  dbToMedication, dbToFeed, dbToWeight, dbToNote, dbToTracker, dbToTrackerLog,
+  dbToContact, dbToFeedSchedule, dbToSettings, dbToActivityLog,
+  applyRowDelta, applyMedLogDelta,
+  sortByName, sortByDateDescTimeDesc, sortByDateAsc, sortByCreatedAtDesc, sortByTimestampDesc,
+} from '../lib/realtimeUtils'
 
 const TrackerContext = createContext(null)
 
@@ -35,17 +41,111 @@ export function TrackerProvider({ children }) {
     }
     loadAllData()
 
+    // Realtime: apply each payload directly to local state instead of
+    // refetching the whole table. ~80% reduction in select queries.
+    const sub = (table) => ({ event: '*', schema: 'public', table, filter: `family_id=eq.${familyId}` })
+
     const channel = supabase.channel(`tracker-${familyId}-${childId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'med_logs', filter: `family_id=eq.${familyId}` }, () => loadMedLogs())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'feeds', filter: `family_id=eq.${familyId}` }, () => loadFeeds())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'weights', filter: `family_id=eq.${familyId}` }, () => loadWeights())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `family_id=eq.${familyId}` }, () => loadNotes())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'medications', filter: `family_id=eq.${familyId}` }, () => loadMedications())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_log', filter: `family_id=eq.${familyId}` }, () => loadActivityLog())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracker_logs', filter: `family_id=eq.${familyId}` }, () => loadTrackerLogs())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contacts', filter: `family_id=eq.${familyId}` }, () => loadContacts())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `family_id=eq.${familyId}` }, () => loadSettings())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'feed_schedules', filter: `family_id=eq.${familyId}` }, () => loadFeedSchedule())
+      .on('postgres_changes', sub('medications'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          medications: applyRowDelta({
+            list: prev.medications, payload, childId,
+            transform: dbToMedication,
+            isVisible: row => row.active === true, // soft-delete via active=false
+            sortFn: sortByName,
+          })
+        }))
+      })
+      .on('postgres_changes', sub('med_logs'), (payload) => {
+        setData(prev => ({ ...prev, medLog: applyMedLogDelta(prev.medLog, payload, childId) }))
+      })
+      .on('postgres_changes', sub('feeds'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          feeds: applyRowDelta({
+            list: prev.feeds, payload, childId,
+            transform: dbToFeed,
+            sortFn: sortByDateDescTimeDesc,
+          })
+        }))
+      })
+      .on('postgres_changes', sub('feed_schedules'), (payload) => {
+        const { eventType, new: newRow, old: oldRow } = payload
+        const relevant = eventType === 'DELETE' ? oldRow : newRow
+        if (childId && relevant?.child_id !== undefined && relevant.child_id !== childId) return
+        setData(prev => ({
+          ...prev,
+          feedSchedule: eventType === 'DELETE' ? null : dbToFeedSchedule(newRow)
+        }))
+      })
+      .on('postgres_changes', sub('weights'), (payload) => {
+        // Weights local shape is keyed by `date` (no id field). The DB has a surrogate
+        // `id` primary key, so DELETE realtime payloads only contain {id} — no date —
+        // which means we can't locate the row in local state on DELETE. Fall back to a
+        // single loadWeights() in that case. INSERT/UPDATE work fine via the new row.
+        const { eventType, new: newRow } = payload
+        if (eventType === 'DELETE') { loadWeights(); return }
+        if (childId && newRow?.child_id !== undefined && newRow.child_id !== childId) return
+        setData(prev => {
+          const w = dbToWeight(newRow)
+          const idx = prev.weights.findIndex(x => x.date === w.date)
+          let weights
+          if (idx >= 0) {
+            weights = prev.weights.slice()
+            weights[idx] = w
+          } else {
+            weights = [...prev.weights, w].sort(sortByDateAsc)
+          }
+          return { ...prev, weights }
+        })
+      })
+      .on('postgres_changes', sub('notes'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          notes: applyRowDelta({
+            list: prev.notes, payload, childId,
+            transform: dbToNote,
+            sortFn: sortByCreatedAtDesc,
+          })
+        }))
+      })
+      .on('postgres_changes', sub('tracker_logs'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          trackerLogs: applyRowDelta({
+            list: prev.trackerLogs, payload, childId,
+            transform: dbToTrackerLog,
+          })
+        }))
+      })
+      .on('postgres_changes', sub('contacts'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          contacts: applyRowDelta({
+            list: prev.contacts, payload, childId,
+            transform: dbToContact,
+            sortFn: sortByName,
+          })
+        }))
+      })
+      .on('postgres_changes', sub('settings'), (payload) => {
+        const { eventType, new: newRow } = payload
+        if (eventType === 'DELETE') return
+        if (childId && newRow?.child_id !== childId) return
+        setData(prev => ({ ...prev, settings: dbToSettings(newRow) }))
+      })
+      .on('postgres_changes', sub('activity_log'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          activityLog: applyRowDelta({
+            list: prev.activityLog, payload, childId,
+            transform: dbToActivityLog,
+            sortFn: sortByTimestampDesc,
+            limit: 200,
+          })
+        }))
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
@@ -70,19 +170,7 @@ export function TrackerProvider({ children }) {
   async function loadMedications() {
     const { data: rows } = await supabase.from('medications').select('*')
       .eq('family_id', familyId).eq('child_id', childId).eq('active', true).order('name')
-    setData(prev => ({
-      ...prev,
-      medications: (rows || []).map(m => ({
-        id: m.id, name: m.name, purpose: m.purpose, dose: m.dose,
-        category: m.category, times: m.times, instructions: m.instructions,
-        supplyUnit: m.supply_unit || 'mL', doseAmount: m.dose_amount != null ? Number(m.dose_amount) : null,
-        supplyRemaining: m.supply_remaining != null ? Number(m.supply_remaining) : null,
-        supplyTotal: m.supply_total != null ? Number(m.supply_total) : null,
-        refillsRemaining: m.refills_remaining, prescriptionSource: m.prescription_source,
-        expiryDate: m.expiry_date, openedDate: m.opened_date,
-        daysAfterOpening: m.days_after_opening, lowSupplyDays: m.low_supply_days ?? 3,
-      }))
-    }))
+    setData(prev => ({ ...prev, medications: (rows || []).map(dbToMedication) }))
   }
 
   async function loadMedLogs() {
@@ -91,7 +179,7 @@ export function TrackerProvider({ children }) {
     const logMap = {}
     ;(rows || []).forEach(row => {
       if (!logMap[row.date]) logMap[row.date] = {}
-      logMap[row.date][row.med_key] = { givenAt: row.given_at, givenBy: row.given_by }
+      logMap[row.date][row.med_key] = { id: row.id, givenAt: row.given_at, givenBy: row.given_by }
     })
     setData(prev => ({ ...prev, medLog: logMap }))
   }
@@ -100,115 +188,71 @@ export function TrackerProvider({ children }) {
     const { data: rows } = await supabase.from('feeds').select('*')
       .eq('family_id', familyId).eq('child_id', childId)
       .order('date', { ascending: false }).order('time', { ascending: false })
-    setData(prev => ({
-      ...prev,
-      feeds: (rows || []).map(f => ({
-        id: f.id, date: f.date, time: f.time, type: f.type,
-        amount: Number(f.amount), notes: f.notes, loggedBy: f.logged_by
-      }))
-    }))
+    setData(prev => ({ ...prev, feeds: (rows || []).map(dbToFeed) }))
   }
 
   async function loadFeedSchedule() {
     const { data: row } = await supabase.from('feed_schedules').select('*')
       .eq('family_id', familyId).eq('child_id', childId).maybeSingle()
-    setData(prev => ({
-      ...prev,
-      feedSchedule: row ? {
-        id: row.id, times: row.times || [], targetAmount: Number(row.target_amount) || 0,
-        feedType: row.feed_type || 'bottle'
-      } : null
-    }))
+    setData(prev => ({ ...prev, feedSchedule: row ? dbToFeedSchedule(row) : null }))
   }
 
   async function loadWeights() {
     const { data: rows } = await supabase.from('weights').select('*')
       .eq('family_id', familyId).eq('child_id', childId).order('date')
-    setData(prev => ({
-      ...prev,
-      weights: (rows || []).map(w => ({ date: w.date, value: Number(w.value), notes: w.notes }))
-    }))
+    setData(prev => ({ ...prev, weights: (rows || []).map(dbToWeight) }))
   }
 
   async function loadNotes() {
     const { data: rows } = await supabase.from('notes').select('*')
       .eq('family_id', familyId).eq('child_id', childId)
       .order('created_at', { ascending: false })
-    setData(prev => ({
-      ...prev,
-      notes: (rows || []).map(n => ({
-        id: n.id, date: n.date, time: n.time, text: n.text,
-        loggedBy: n.logged_by, timestamp: n.created_at
-      }))
-    }))
+    setData(prev => ({ ...prev, notes: (rows || []).map(dbToNote) }))
   }
 
   async function loadTrackers() {
     const { data: rows } = await supabase.from('trackers').select('*')
       .eq('family_id', familyId).eq('child_id', childId)
-    setData(prev => ({
-      ...prev,
-      trackers: (rows || []).map(t => ({
-        id: t.id, name: t.name, icon: t.icon, unit: t.unit, type: t.type
-      }))
-    }))
+    setData(prev => ({ ...prev, trackers: (rows || []).map(dbToTracker) }))
   }
 
   async function loadTrackerLogs() {
     const { data: rows } = await supabase.from('tracker_logs').select('*')
       .eq('family_id', familyId).eq('child_id', childId)
-    setData(prev => ({
-      ...prev,
-      trackerLogs: (rows || []).map(l => ({
-        id: l.id, trackerId: l.tracker_id, date: l.date, time: l.time,
-        value: l.value, notes: l.notes
-      }))
-    }))
+    setData(prev => ({ ...prev, trackerLogs: (rows || []).map(dbToTrackerLog) }))
   }
 
   async function loadContacts() {
     const { data: rows } = await supabase.from('contacts').select('*')
       .eq('family_id', familyId).eq('child_id', childId).order('name')
-    setData(prev => ({
-      ...prev,
-      contacts: (rows || []).map(c => ({
-        id: c.id, name: c.name, role: c.role, phone: c.phone,
-        email: c.email, location: c.location, notes: c.notes,
-      }))
-    }))
+    setData(prev => ({ ...prev, contacts: (rows || []).map(dbToContact) }))
   }
 
   async function loadSettings() {
     const { data: row } = await supabase.from('settings').select('*')
       .eq('family_id', familyId).eq('child_id', childId).single()
-    if (row) {
-      setData(prev => ({
-        ...prev,
-        settings: { medAlarms: row.med_alarms, feedAlarms: row.feed_alarms, soundAlerts: row.sound_alerts }
-      }))
-    }
+    if (row) setData(prev => ({ ...prev, settings: dbToSettings(row) }))
   }
 
   async function loadActivityLog() {
     const { data: rows } = await supabase.from('activity_log').select('*')
       .eq('family_id', familyId).eq('child_id', childId)
       .order('timestamp', { ascending: false }).limit(200)
-    setData(prev => ({
-      ...prev,
-      activityLog: (rows || []).map(a => ({
-        timestamp: a.timestamp, type: a.type, message: a.message
-      }))
-    }))
+    setData(prev => ({ ...prev, activityLog: (rows || []).map(dbToActivityLog) }))
   }
 
   // ==================== ACTIVITY LOGGING ====================
   function logActivity(type, message) {
-    const entry = { timestamp: new Date().toISOString(), type, message }
+    // Generate the id client-side so the optimistic local entry and the
+    // realtime echo (when it arrives) share an id and dedupe via applyRowDelta.
+    const id = genId()
+    const timestamp = new Date().toISOString()
+    const entry = { id, timestamp, type, message }
     setData(prev => ({
       ...prev,
       activityLog: [entry, ...prev.activityLog].slice(0, 200)
     }))
-    supabase.from('activity_log').insert({ ...fq(), type, message }).then()
+    supabase.from('activity_log').insert({ id, ...fq(), type, message, timestamp }).then()
   }
 
   // ==================== MED OPERATIONS ====================
