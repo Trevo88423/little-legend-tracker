@@ -135,79 +135,148 @@ export function generateMedSchedule(medications, childName) {
   addHeader(doc, 'Medication Schedule', childName)
 
   let y = 42
+  function ensureSpace(needed) {
+    if (y + needed > 280) {
+      addFooter(doc, doc.internal.getNumberOfPages())
+      doc.addPage()
+      y = 20
+    }
+  }
 
-  // Title
+  // Split into scheduled (have times) and PRN (no times — taken as-needed)
+  const scheduled = (medications || []).filter(m => Array.isArray(m.times) && m.times.length > 0)
+  const prn = (medications || []).filter(m => !Array.isArray(m.times) || m.times.length === 0)
+
+  // ===== Scheduled medications =====
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(...COLORS.text)
-  doc.text('Daily Medication Schedule', 14, y)
+  doc.text('Daily Schedule', 14, y)
   y += 10
 
-  // Build time slots
-  const slots = {}
-  medications.forEach(med => {
-    med.times.forEach(t => {
-      if (!slots[t]) slots[t] = []
-      slots[t].push(med)
+  if (scheduled.length === 0) {
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('No scheduled medications.', 14, y)
+    y += 10
+  } else {
+    const slots = {}
+    scheduled.forEach(med => {
+      med.times.forEach(t => {
+        if (!slots[t]) slots[t] = []
+        slots[t].push(med)
+      })
     })
-  })
-  const sortedTimes = Object.keys(slots).sort()
+    const sortedTimes = Object.keys(slots).sort()
 
-  // Table header
-  doc.setFillColor(...COLORS.bg)
-  doc.rect(14, y, 182, 8, 'F')
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(...COLORS.muted)
-  doc.text('TIME', 16, y + 6)
-  doc.text('MEDICATION', 48, y + 6)
-  doc.text('DOSE', 110, y + 6)
-  doc.text('CATEGORY', 142, y + 6)
-  doc.text('INSTRUCTIONS', 170, y + 6)
-  y += 12
+    // Table header
+    doc.setFillColor(...COLORS.bg)
+    doc.rect(14, y, 182, 8, 'F')
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('TIME', 16, y + 6)
+    doc.text('MEDICATION', 48, y + 6)
+    doc.text('DOSE', 110, y + 6)
+    doc.text('CATEGORY', 142, y + 6)
+    doc.text('INSTRUCTIONS', 170, y + 6)
+    y += 12
 
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
 
-  sortedTimes.forEach(time => {
-    slots[time].forEach((med, i) => {
-      if (y > 270) {
-        addFooter(doc, doc.internal.getNumberOfPages())
-        doc.addPage()
-        y = 20
-      }
+    sortedTimes.forEach(time => {
+      slots[time].forEach(med => {
+        ensureSpace(8)
+        const catColor = CAT_COLORS[med.category] || CAT_COLORS.other
+        doc.setFillColor(...catColor)
+        doc.circle(18, y - 1, 2, 'F')
 
-      // Category color dot
+        doc.setTextColor(...COLORS.text)
+        doc.setFont('helvetica', 'bold')
+        doc.text(formatTime12(time) || '', 24, y)
+        doc.setFont('helvetica', 'normal')
+        doc.text(med.name || '', 48, y)
+        doc.text(med.dose || '', 110, y)
+        doc.setTextColor(...catColor)
+        doc.text(med.category || '', 142, y)
+        doc.setTextColor(...COLORS.muted)
+        doc.text((med.instructions || '').substring(0, 20), 170, y)
+        y += 8
+
+        doc.setDrawColor(...COLORS.border)
+        doc.line(14, y - 3, 196, y - 3)
+      })
+    })
+
+    y += 4
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...COLORS.muted)
+    doc.text(`${scheduled.length} scheduled medication${scheduled.length !== 1 ? 's' : ''} across ${sortedTimes.length} time slot${sortedTimes.length !== 1 ? 's' : ''} per day`, 14, y)
+    y += 10
+  }
+
+  // ===== PRN / As-needed medications =====
+  if (prn.length > 0) {
+    ensureSpace(20)
+    doc.setFontSize(14)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text('PRN / As-Needed', 14, y)
+    y += 10
+
+    // Table header — different columns from scheduled (no time column)
+    doc.setFillColor(...COLORS.bg)
+    doc.rect(14, y, 182, 8, 'F')
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('MEDICATION', 18, y + 6)
+    doc.text('DOSE', 80, y + 6)
+    doc.text('PURPOSE', 115, y + 6)
+    doc.text('WHEN TO GIVE', 162, y + 6)
+    y += 12
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    prn.forEach(med => {
+      ensureSpace(10)
       const catColor = CAT_COLORS[med.category] || CAT_COLORS.other
       doc.setFillColor(...catColor)
-      doc.circle(18, y - 1, 2, 'F')
+      doc.circle(16, y - 1, 2, 'F')
 
       doc.setTextColor(...COLORS.text)
       doc.setFont('helvetica', 'bold')
-      doc.text(formatTime12(time) || '', 24, y)
+      doc.text(med.name || '', 22, y)
       doc.setFont('helvetica', 'normal')
-      doc.text(med.name || '', 48, y)
-      doc.text(med.dose || '', 110, y)
-      doc.setTextColor(...catColor)
-      doc.text(med.category || '', 142, y)
+      doc.text(med.dose || '', 80, y)
+      // Purpose may be longer — clip to fit column width
       doc.setTextColor(...COLORS.muted)
-      doc.text((med.instructions || '').substring(0, 20), 170, y)
+      doc.text((med.purpose || '').substring(0, 28), 115, y)
+      doc.text((med.instructions || 'as needed').substring(0, 22), 162, y)
       y += 8
-
-      // Separator line
       doc.setDrawColor(...COLORS.border)
       doc.line(14, y - 3, 196, y - 3)
     })
-  })
 
-  // Summary
-  y += 6
+    y += 4
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...COLORS.muted)
+    doc.text(`${prn.length} PRN medication${prn.length !== 1 ? 's' : ''}`, 14, y)
+    y += 10
+  }
+
+  // Overall summary
+  ensureSpace(8)
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(...COLORS.text)
-  doc.text(`Total: ${medications.length} medications, ${sortedTimes.length} time slots per day`, 14, y)
+  doc.text(`Total: ${medications.length} medication${medications.length !== 1 ? 's' : ''} (${scheduled.length} scheduled, ${prn.length} PRN)`, 14, y)
 
-  addFooter(doc, 1)
+  addFooter(doc, doc.internal.getNumberOfPages())
   doc.save(`med-schedule-${childName.toLowerCase().replace(/\s+/g, '-')}.pdf`)
 }
 
@@ -470,6 +539,125 @@ export function generateDailySummary(data, child, date) {
 
   addFooter(doc, doc.internal.getNumberOfPages())
   doc.save(`daily-summary-${childName.toLowerCase().replace(/\s+/g, '-')}-${d}.pdf`)
+}
+
+// Order roles in clinical-relevance order; anything else falls into 'Other'
+const CONTACT_ROLE_ORDER = [
+  'Cardiologist', 'Paediatrician', 'GP', 'Surgeon', 'Therapist',
+  'Dietitian', 'Nurse', 'Pharmacy', 'Hospital', 'Other',
+]
+
+export function generateContactsReport(data, child) {
+  const childName = typeof child === 'string' ? child : (child?.name || 'Child')
+  const contacts = data.contacts || []
+  const doc = new jsPDF()
+  addHeader(doc, 'Medical Contacts', childName)
+
+  let y = 42
+  function ensureSpace(needed) {
+    if (y + needed > 280) {
+      addFooter(doc, doc.internal.getNumberOfPages())
+      doc.addPage()
+      y = 20
+    }
+  }
+
+  if (contacts.length === 0) {
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('No contacts have been added yet. Add them in the Contacts tab.', 14, y)
+    addFooter(doc, 1)
+    doc.save(`contacts-${childName.toLowerCase().replace(/\s+/g, '-')}-${today()}.pdf`)
+    return
+  }
+
+  // Group by role, preserve clinical ordering
+  const byRole = {}
+  for (const c of contacts) {
+    const role = c.role || 'Other'
+    if (!byRole[role]) byRole[role] = []
+    byRole[role].push(c)
+  }
+  const roles = Object.keys(byRole).sort((a, b) => {
+    const ai = CONTACT_ROLE_ORDER.indexOf(a)
+    const bi = CONTACT_ROLE_ORDER.indexOf(b)
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+  })
+
+  for (const role of roles) {
+    const list = byRole[role].slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    ensureSpace(16)
+
+    // Role header strip
+    doc.setFillColor(...COLORS.bg)
+    doc.rect(14, y, 182, 8, 'F')
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.primary)
+    doc.text(`${role} (${list.length})`, 18, y + 6)
+    y += 14
+
+    for (const c of list) {
+      // Estimate space: name + 1-3 detail lines + notes lines
+      const detailParts = []
+      if (c.phone) detailParts.push(`📞 ${c.phone}`)
+      if (c.email) detailParts.push(`✉ ${c.email}`)
+      const detailLine = detailParts.join('   ')
+      const notesLines = c.notes ? doc.splitTextToSize(c.notes, 178) : []
+      const blockHeight = 8 + (detailLine ? 5 : 0) + (c.location ? 5 : 0) + (notesLines.length * 5) + 4
+      ensureSpace(blockHeight)
+
+      // Name
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(...COLORS.text)
+      doc.text(c.name || '', 18, y)
+      y += 6
+
+      // Phone + email line
+      if (detailLine) {
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(...COLORS.text)
+        doc.text(detailLine, 22, y)
+        y += 5
+      }
+
+      // Location
+      if (c.location) {
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(...COLORS.muted)
+        doc.text(c.location, 22, y)
+        y += 5
+      }
+
+      // Notes
+      if (notesLines.length > 0) {
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'italic')
+        doc.setTextColor(...COLORS.muted)
+        doc.text(notesLines, 22, y)
+        y += notesLines.length * 5
+      }
+
+      // Separator
+      doc.setDrawColor(...COLORS.border)
+      doc.line(14, y + 1, 196, y + 1)
+      y += 6
+    }
+  }
+
+  // Footer summary
+  ensureSpace(8)
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.text)
+  doc.text(`Total: ${contacts.length} contact${contacts.length !== 1 ? 's' : ''} across ${roles.length} role${roles.length !== 1 ? 's' : ''}`, 14, y)
+
+  addFooter(doc, doc.internal.getNumberOfPages())
+  doc.save(`contacts-${childName.toLowerCase().replace(/\s+/g, '-')}-${today()}.pdf`)
 }
 
 export function generateGrowthReport(data, child) {
@@ -949,7 +1137,82 @@ export function generateWeeklyReport(data, child, range) {
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(...(change >= 0 ? COLORS.green : COLORS.red))
       doc.text(`Change: ${change >= 0 ? '+' : ''}${change.toFixed(1)}cm`, 14, y + 2)
-      y += 8
+      y += 10
+    }
+  }
+
+  // ===== Notes from the period =====
+  // Show any notes the parent wrote during the range — these are the
+  // most signal-dense entries for a clinician (tagged moments, concerns,
+  // questions, observations).
+  const periodNotes = (data.notes || [])
+    .filter(n => n.date >= startDate && n.date <= endDate)
+    .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
+  if (periodNotes.length > 0) {
+    ensureSpace(20)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text(`Notes (${periodNotes.length})`, 14, y)
+    y += 8
+    for (const n of periodNotes) {
+      const lines = doc.splitTextToSize(n.text || '', 178)
+      ensureSpace(6 + lines.length * 5 + 3)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(...COLORS.muted)
+      doc.text(`${formatDate(n.date)} · ${formatTime12(n.time)}${n.loggedBy ? ' · ' + n.loggedBy : ''}`, 14, y)
+      y += 5
+      doc.setFontSize(9)
+      doc.setTextColor(...COLORS.text)
+      doc.text(lines, 16, y)
+      y += lines.length * 5 + 4
+    }
+    y += 2
+  }
+
+  // ===== Activity log (filtered to non-routine events) =====
+  // Excludes individual 'med given' entries — those are already reflected in
+  // the per-medication compliance table above. Keeps weight, height, feed,
+  // tracker, and other notable entries. Capped at the most recent 40.
+  const periodActivity = (data.activityLog || [])
+    .filter(a => {
+      if (!a.timestamp) return false
+      const dateStr = a.timestamp.slice(0, 10)
+      if (dateStr < startDate || dateStr > endDate) return false
+      // Drop noisy "Gave X" / "Unmarked X" routine med events
+      if (a.type === 'med' && /^(Gave|Unmarked) /.test(a.message || '')) return false
+      return true
+    })
+    .slice(0, 40)
+
+  if (periodActivity.length > 0) {
+    ensureSpace(20)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text(`Activity Timeline (${periodActivity.length})`, 14, y)
+    y += 4
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('Routine medication doses excluded (see Medication Compliance above).', 14, y + 4)
+    y += 8
+
+    for (const a of periodActivity) {
+      const ts = a.timestamp ? new Date(a.timestamp) : null
+      const dateLabel = ts
+        ? `${formatDate(ts.toISOString().slice(0, 10))} · ${ts.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+        : ''
+      const lines = doc.splitTextToSize(a.message || '', 130)
+      ensureSpace(5 + Math.max(0, lines.length - 1) * 4)
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...COLORS.muted)
+      doc.text(dateLabel, 14, y)
+      doc.setTextColor(...COLORS.text)
+      doc.text(lines, 64, y)
+      y += Math.max(5, lines.length * 4 + 1)
     }
   }
 

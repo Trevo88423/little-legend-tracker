@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTracker } from '../../contexts/TrackerContext'
 import { useFamily } from '../../contexts/FamilyContext'
-import { generateMedSchedule, generateDailySummary, generateWeeklyReport, generateGrowthReport } from '../../lib/pdfGenerator'
+import { generateMedSchedule, generateDailySummary, generateWeeklyReport, generateGrowthReport, generateContactsReport } from '../../lib/pdfGenerator'
 import { today, daysAgo } from '../../lib/dateUtils'
 
 const reportTypes = [
@@ -9,9 +9,17 @@ const reportTypes = [
     id: 'med-schedule',
     title: 'Medication Schedule',
     icon: '💊',
-    description: 'A complete list of current medications with doses, times, and instructions. Perfect for handing to a new nurse or specialist.',
+    description: 'Current medications with doses, times, instructions and category. Scheduled doses and PRN/as-needed meds shown in separate sections so handover staff can see at a glance what runs on a clock vs. what waits for symptoms.',
     buttonLabel: 'Generate Med Schedule',
     generator: 'medSchedule',
+  },
+  {
+    id: 'contacts-report',
+    title: 'Medical Contacts',
+    icon: '👥',
+    description: "Every contact you've added — paediatrician, cardiologist, GP, surgeon, therapists, hospital and pharmacy — grouped by role with phone, email, location and notes. Hand to a new provider or sitter for instant context.",
+    buttonLabel: 'Generate Contacts Report',
+    generator: 'contactsReport',
   },
   {
     id: 'growth-report',
@@ -33,7 +41,7 @@ const reportTypes = [
     id: 'weekly-report',
     title: 'Period Report',
     icon: '📈',
-    description: 'Custom date range overview: medication adherence (overall and per-medication), daily intake (bolus + continuous), weight & height trend with percentiles. Defaults to the last 7 days; pick any range for "last appointment to now".',
+    description: 'Custom date range overview: medication adherence (overall and per-medication), daily intake (bolus + continuous), weight & height trend with percentiles, plus all notes and a filtered activity timeline. Defaults to the last 7 days; pick any range for "last appointment to now".',
     buttonLabel: 'Generate Period Report',
     generator: 'weeklyReport',
   },
@@ -61,6 +69,9 @@ export default function ReportsView() {
       switch (type) {
         case 'medSchedule':
           await generateMedSchedule(data.medications || [], childName)
+          break
+        case 'contactsReport':
+          await generateContactsReport(data, activeChild)
           break
         case 'growthReport':
           await generateGrowthReport(data, activeChild)
