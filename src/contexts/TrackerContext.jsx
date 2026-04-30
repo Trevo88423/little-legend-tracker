@@ -4,7 +4,7 @@ import { useFamily } from './FamilyContext'
 import { today, now24, formatTime12 } from '../lib/dateUtils'
 import { genId } from '../lib/idUtils'
 import {
-  dbToMedication, dbToFeed, dbToWeight, dbToNote, dbToTracker, dbToTrackerLog,
+  dbToMedication, dbToFeed, dbToWeight, dbToHeight, dbToNote, dbToTracker, dbToTrackerLog,
   dbToContact, dbToFeedSchedule, dbToSettings, dbToActivityLog,
   dbToContinuousFeedSession, dbToContinuousFeedPause,
   applyRowDelta, applyMedLogDelta, medLogsToMap,
@@ -24,6 +24,7 @@ export function TrackerProvider({ children }) {
     feeds: [],
     feedSchedule: null,
     weights: [],
+    heights: [],
     trackers: [],
     trackerLogs: [],
     notes: [],
@@ -102,6 +103,24 @@ export function TrackerProvider({ children }) {
             weights = [...prev.weights, w].sort(sortByDateAsc)
           }
           return { ...prev, weights }
+        })
+      })
+      .on('postgres_changes', sub('heights'), (payload) => {
+        // Same date-keyed shape as weights — same DELETE fallback rationale.
+        const { eventType, new: newRow } = payload
+        if (eventType === 'DELETE') { loadHeights(); return }
+        if (childId && newRow?.child_id !== undefined && newRow.child_id !== childId) return
+        setData(prev => {
+          const h = dbToHeight(newRow)
+          const idx = prev.heights.findIndex(x => x.date === h.date)
+          let heights
+          if (idx >= 0) {
+            heights = prev.heights.slice()
+            heights[idx] = h
+          } else {
+            heights = [...prev.heights, h].sort(sortByDateAsc)
+          }
+          return { ...prev, heights }
         })
       })
       .on('postgres_changes', sub('notes'), (payload) => {
@@ -200,7 +219,7 @@ export function TrackerProvider({ children }) {
         // (e.g., migration 016 not yet applied in this environment).
         console.warn('get_tracker_snapshot RPC failed, falling back to per-table loads:', error.message)
         await Promise.all([
-          loadMedications(), loadMedLogs(), loadFeeds(), loadFeedSchedule(), loadWeights(),
+          loadMedications(), loadMedLogs(), loadFeeds(), loadFeedSchedule(), loadWeights(), loadHeights(),
           loadNotes(), loadTrackers(), loadTrackerLogs(), loadContacts(), loadSettings(), loadActivityLog(),
           loadContinuousFeedSessions(), loadContinuousFeedPauses(),
         ])
@@ -214,6 +233,7 @@ export function TrackerProvider({ children }) {
         feeds: (snapshot.feeds || []).map(dbToFeed),
         feedSchedule: snapshot.feed_schedule ? dbToFeedSchedule(snapshot.feed_schedule) : null,
         weights: (snapshot.weights || []).map(dbToWeight),
+        heights: (snapshot.heights || []).map(dbToHeight),
         notes: (snapshot.notes || []).map(dbToNote),
         trackers: (snapshot.trackers || []).map(dbToTracker),
         trackerLogs: (snapshot.tracker_logs || []).map(dbToTrackerLog),
@@ -259,6 +279,12 @@ export function TrackerProvider({ children }) {
     const { data: rows } = await supabase.from('weights').select('*')
       .eq('family_id', familyId).eq('child_id', childId).order('date')
     setData(prev => ({ ...prev, weights: (rows || []).map(dbToWeight) }))
+  }
+
+  async function loadHeights() {
+    const { data: rows } = await supabase.from('heights').select('*')
+      .eq('family_id', familyId).eq('child_id', childId).order('date')
+    setData(prev => ({ ...prev, heights: (rows || []).map(dbToHeight) }))
   }
 
   async function loadNotes() {
@@ -613,6 +639,29 @@ export function TrackerProvider({ children }) {
     await supabase.from('weights').delete().match({ ...fq(), date })
   }
 
+  async function logHeight(heightDate, heightValue) {
+    const value = parseFloat(heightValue)
+    // Reasonable bounds for a child: 30cm (premature) to 200cm (adult)
+    if (!value || value < 30 || value > 200) return
+    const date = heightDate || today()
+    setData(prev => {
+      const newHeights = prev.heights.filter(h => h.date !== date)
+      newHeights.push({ date, value })
+      newHeights.sort((a, b) => a.date.localeCompare(b.date))
+      return { ...prev, heights: newHeights }
+    })
+    await supabase.from('heights').upsert(
+      { ...fq(), date, value, logged_by: loggerName },
+      { onConflict: 'family_id,child_id,date' }
+    )
+    logActivity('weight', `Height: ${value}cm on ${date} — ${loggerName}`)
+  }
+
+  async function deleteHeight(date) {
+    setData(prev => ({ ...prev, heights: prev.heights.filter(h => h.date !== date) }))
+    await supabase.from('heights').delete().match({ ...fq(), date })
+  }
+
   // ==================== NOTES ====================
   async function addNote(noteText) {
     if (!noteText.trim()) return
@@ -890,6 +939,8 @@ export function TrackerProvider({ children }) {
       getActiveContinuousSession, getActivePauseFor, getPausesForSession,
       // Weight operations
       logWeight, deleteWeight,
+      // Height operations
+      logHeight, deleteHeight,
       // Note operations
       addNote, deleteNote,
       // Tracker operations
@@ -914,7 +965,7 @@ export function TrackerProvider({ children }) {
 
 const EMPTY_TRACKER = {
   loading: true,
-  data: { medications: [], medLog: {}, feeds: [], feedSchedule: null, weights: [], trackers: [], trackerLogs: [], notes: [], contacts: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [], continuousFeedSessions: [], continuousFeedPauses: [] },
+  data: { medications: [], medLog: {}, feeds: [], feedSchedule: null, weights: [], heights: [], trackers: [], trackerLogs: [], notes: [], contacts: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [], continuousFeedSessions: [], continuousFeedPauses: [] },
   loggerName: '',
   isMedGiven: () => false,
   toggleSetting: () => {},
@@ -933,6 +984,8 @@ const EMPTY_TRACKER = {
   getMatchingFeed: () => null,
   getFeedScheduleStats: () => ({ total: 0, done: 0 }),
   addWeight: async () => {},
+  logHeight: async () => {},
+  deleteHeight: async () => {},
   addNote: async () => {},
   deleteNote: async () => {},
   saveTracker: async () => {},

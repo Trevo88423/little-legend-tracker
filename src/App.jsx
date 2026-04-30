@@ -16,7 +16,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute'
 import DashboardView from './components/dashboard/DashboardView'
 import MedsView from './components/medications/MedsView'
 import FeedingView from './components/feeding/FeedingView'
-import WeightView from './components/weight/WeightView'
+import GrowthView from './components/growth/GrowthView'
 import NotesView from './components/notes/NotesView'
 import TrackersView from './components/trackers/TrackersView'
 import HistoryView from './components/history/HistoryView'
@@ -51,7 +51,9 @@ export default function App() {
               <Route path="dashboard" element={<DashboardView />} />
               <Route path="meds" element={<MedsView />} />
               <Route path="feeding" element={<FeedingView />} />
-              <Route path="weight" element={<WeightView />} />
+              <Route path="growth" element={<GrowthView />} />
+              {/* Backwards compat: old /app/weight tab redirects to /app/growth */}
+              <Route path="weight" element={<Navigate to="/app/growth" replace />} />
               <Route path="notes" element={<NotesView />} />
               <Route path="contacts" element={<ContactsView />} />
               <Route path="tracking" element={<TrackersView />} />

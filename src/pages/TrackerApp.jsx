@@ -140,7 +140,7 @@ const tabs = [
   { label: 'Dashboard', path: '' },
   { label: 'Meds', path: 'meds' },
   { label: 'Feeding', path: 'feeding' },
-  { label: 'Weight', path: 'weight' },
+  { label: 'Growth', path: 'growth' },
   { label: 'Notes', path: 'notes' },
   { label: 'Contacts', path: 'contacts' },
   { label: 'Tracking', path: 'tracking' },

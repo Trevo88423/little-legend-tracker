@@ -52,6 +52,10 @@ export function dbToWeight(row) {
   return { date: row.date, value: Number(row.value), notes: row.notes }
 }
 
+export function dbToHeight(row) {
+  return { date: row.date, value: Number(row.value), notes: row.notes }
+}
+
 export function dbToNote(row) {
   return {
     id: row.id,

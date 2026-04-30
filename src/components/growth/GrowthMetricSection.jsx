@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useTracker } from '../../contexts/TrackerContext'
 import { useFamily } from '../../contexts/FamilyContext'
 import { today, formatDate } from '../../lib/dateUtils'
 import {
@@ -9,47 +8,66 @@ import {
   ordinal,
 } from '../../lib/whoGrowthStandards'
 
-export default function WeightView() {
-  const { data, logWeight, deleteWeight } = useTracker()
+// Generic growth metric section — used for both weight and height.
+// Props:
+//   metric: 'weight' | 'length'  (matches whoGrowthStandards table key)
+//   title: 'Weight' | 'Height'
+//   unit: 'kg' | 'cm'
+//   data: array of { date, value, notes? } sorted by date asc
+//   logEntry: async (date, value) => void
+//   deleteEntry: async (date) => void
+//   inputMin/inputMax/inputStep: number input bounds
+//   placeholder: input placeholder text
+//
+// Mirrors the original WeightView layout: log form → chart with WHO bands
+// (when sex+DOB are set) → tap-for-percentile tooltip → history list.
+export default function GrowthMetricSection({
+  metric,
+  title,
+  unit,
+  data: entries,
+  logEntry,
+  deleteEntry,
+  inputMin,
+  inputMax,
+  inputStep,
+  placeholder,
+}) {
   const { activeChild } = useFamily()
-  const [weightDate, setWeightDate] = useState(today())
-  const [weightValue, setWeightValue] = useState('')
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryValue, setEntryValue] = useState('')
   const [activePointIdx, setActivePointIdx] = useState(null)
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
   const pointHitsRef = useRef([])
 
-  const weights = data.weights
   const childSex = activeChild?.sex || null
   const childDob = activeChild?.date_of_birth || null
   const hasPercentileContext = Boolean(childSex && childDob)
 
-  // Compute percentile for each weight entry (memoized)
   const enriched = useMemo(() => {
-    if (!hasPercentileContext) return weights.map(w => ({ ...w, percentile: null, ageMonths: null }))
-    return weights.map(w => {
-      const months = ageInMonths(childDob, w.date)
+    if (!hasPercentileContext) return entries.map(e => ({ ...e, percentile: null, ageMonths: null }))
+    return entries.map(e => {
+      const months = ageInMonths(childDob, e.date)
       return {
-        ...w,
+        ...e,
         ageMonths: months,
-        percentile: estimatePercentile(childSex, months, Number(w.value)),
+        percentile: estimatePercentile(metric, childSex, months, Number(e.value)),
       }
     })
-  }, [weights, childSex, childDob, hasPercentileContext])
+  }, [entries, childSex, childDob, hasPercentileContext, metric])
 
-  // Current + 2-week trend
   const trend = useMemo(() => {
     if (!hasPercentileContext || enriched.length === 0) return null
     const latest = enriched[enriched.length - 1]
     if (!latest.percentile) return null
     const latestTime = new Date(latest.date + 'T00:00:00').getTime()
     const twoWeeksAgo = latestTime - 14 * 24 * 60 * 60 * 1000
-    // Find the entry closest to (but not after) two weeks ago, or earliest if none old enough
     let prev = null
     for (let i = enriched.length - 2; i >= 0; i--) {
       const t = new Date(enriched[i].date + 'T00:00:00').getTime()
       if (t <= twoWeeksAgo) { prev = enriched[i]; break }
-      prev = enriched[i] // fallback to oldest if all newer than 2 weeks
+      prev = enriched[i]
     }
     return {
       current: latest.percentile,
@@ -59,9 +77,9 @@ export default function WeightView() {
     }
   }, [enriched, hasPercentileContext])
 
-  const drawWeightChart = useCallback(() => {
+  const drawChart = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas || weights.length < 2) return
+    if (!canvas || entries.length < 2) return
 
     const ctx = canvas.getContext('2d')
     const dpr = window.devicePixelRatio || 1
@@ -78,20 +96,17 @@ export default function WeightView() {
 
     ctx.clearRect(0, 0, w, h)
 
-    // Time-based x-axis
-    const times = weights.map(wt => new Date(wt.date + 'T00:00:00').getTime())
+    const times = entries.map(e => new Date(e.date + 'T00:00:00').getTime())
     const tMin = times[0]
     const tMax = times[times.length - 1]
     const tRange = tMax - tMin || 1
     const xForTime = t => pad.left + ((t - tMin) / tRange) * chartW
 
-    // Build percentile curves across the same date range (if context present)
     const curves = hasPercentileContext
-      ? buildPercentileCurves(childSex, childDob, weights[0].date, weights[weights.length - 1].date, 60)
+      ? buildPercentileCurves(metric, childSex, childDob, entries[0].date, entries[entries.length - 1].date, 60)
       : null
 
-    // Y range = union of data range and percentile range, with small pad
-    const dataValues = weights.map(wt => Number(wt.value))
+    const dataValues = entries.map(e => Number(e.value))
     let minVal = Math.min(...dataValues)
     let maxVal = Math.max(...dataValues)
     if (curves) {
@@ -104,10 +119,11 @@ export default function WeightView() {
     const range = maxVal - minVal || 1
     const yForValue = v => pad.top + chartH - ((v - minVal) / range) * chartH
 
-    // Grid lines
+    // Grid
     ctx.strokeStyle = '#ece8e1'
     ctx.lineWidth = 1
     const gridLines = 5
+    const decimals = metric === 'weight' ? 2 : 1
     for (let i = 0; i <= gridLines; i++) {
       const y = pad.top + (chartH / gridLines) * i
       ctx.beginPath()
@@ -118,10 +134,10 @@ export default function WeightView() {
       ctx.fillStyle = '#a89888'
       ctx.font = '600 10px Nunito, sans-serif'
       ctx.textAlign = 'right'
-      ctx.fillText(val.toFixed(2), pad.left - 6, y + 4)
+      ctx.fillText(val.toFixed(decimals), pad.left - 6, y + 4)
     }
 
-    // Percentile bands (drawn behind everything else)
+    // Percentile bands
     if (curves) {
       const xs = curves.dates.map(d => xForTime(d.getTime()))
       const bands = [
@@ -142,7 +158,6 @@ export default function WeightView() {
         ctx.closePath()
         ctx.fill()
       })
-      // Curve lines
       const lines = [
         { key: 'p3',  color: 'rgba(120, 140, 170, 0.55)', width: 1, dash: [4, 3] },
         { key: 'p15', color: 'rgba(100, 160, 110, 0.55)', width: 1, dash: [4, 3] },
@@ -162,7 +177,6 @@ export default function WeightView() {
         ctx.stroke()
       })
       ctx.setLineDash([])
-      // Right-edge labels for percentile lines
       ctx.fillStyle = '#7a8a8a'
       ctx.font = '600 9px Nunito, sans-serif'
       ctx.textAlign = 'left'
@@ -175,15 +189,14 @@ export default function WeightView() {
       })
     }
 
-    // Data points (time-positioned)
-    const points = weights.map((wt, i) => ({
+    const points = entries.map((e, i) => ({
       x: xForTime(times[i]),
-      y: yForValue(Number(wt.value)),
+      y: yForValue(Number(e.value)),
       idx: i,
     }))
     pointHitsRef.current = points
 
-    // Line
+    // Line + fill
     ctx.strokeStyle = '#e86c50'
     ctx.lineWidth = 2.5
     ctx.lineJoin = 'round'
@@ -192,8 +205,6 @@ export default function WeightView() {
       if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y)
     })
     ctx.stroke()
-
-    // Fill area under line
     ctx.fillStyle = 'rgba(232, 108, 80, 0.08)'
     ctx.beginPath()
     ctx.moveTo(points[0].x, pad.top + chartH)
@@ -214,27 +225,27 @@ export default function WeightView() {
       ctx.stroke()
     })
 
-    // Date labels on x-axis (time-spaced)
+    // X labels
     ctx.fillStyle = '#a89888'
     ctx.font = '600 9px Nunito, sans-serif'
     ctx.textAlign = 'center'
     const maxLabels = 6
-    const step = Math.max(1, Math.floor(weights.length / maxLabels))
-    weights.forEach((wt, i) => {
-      if (i % step === 0 || i === weights.length - 1) {
-        const dt = new Date(wt.date + 'T00:00:00')
+    const step = Math.max(1, Math.floor(entries.length / maxLabels))
+    entries.forEach((e, i) => {
+      if (i % step === 0 || i === entries.length - 1) {
+        const dt = new Date(e.date + 'T00:00:00')
         const label = dt.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
         ctx.fillText(label, points[i].x, h - pad.bottom + 20)
       }
     })
-  }, [weights, hasPercentileContext, childSex, childDob, activePointIdx])
+  }, [entries, hasPercentileContext, childSex, childDob, activePointIdx, metric])
 
   useEffect(() => {
-    drawWeightChart()
-    function onResize() { drawWeightChart() }
+    drawChart()
+    function onResize() { drawChart() }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [drawWeightChart])
+  }, [drawChart])
 
   function handleCanvasPointer(e) {
     const canvas = canvasRef.current
@@ -248,65 +259,64 @@ export default function WeightView() {
       const d = Math.hypot(p.x - x, p.y - y)
       if (d < nearestDist) { nearestDist = d; nearestIdx = i }
     })
-    if (nearestDist <= 18) {
-      setActivePointIdx(nearestIdx)
-    } else {
-      setActivePointIdx(null)
-    }
+    if (nearestDist <= 18) setActivePointIdx(nearestIdx)
+    else setActivePointIdx(null)
   }
 
-  async function handleLogWeight(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    if (!weightValue) return
-    await logWeight(weightDate, weightValue)
-    setWeightValue('')
-    setWeightDate(today())
+    if (!entryValue) return
+    await logEntry(entryDate, entryValue)
+    setEntryValue('')
+    setEntryDate(today())
   }
 
   function handleDelete(date) {
-    if (window.confirm(`Delete weight entry for ${formatDate(date)}?`)) {
-      deleteWeight(date)
+    if (window.confirm(`Delete ${title.toLowerCase()} entry for ${formatDate(date)}?`)) {
+      deleteEntry(date)
     }
   }
 
-  // Tooltip position for active point
   const activePoint = activePointIdx != null ? pointHitsRef.current[activePointIdx] : null
   const activeEntry = activePointIdx != null ? enriched[activePointIdx] : null
+  const sexLabel = childSex === 'female' ? 'girls' : 'boys'
+  const sourceLabel = metric === 'weight' ? 'weight-for-age' : 'length-for-age'
+  const decimals = metric === 'weight' ? 2 : 1
 
   return (
-    <div>
+    <>
       <div className="t-card">
-        <div className="t-card-title">Log Weight</div>
-        <form onSubmit={handleLogWeight}>
+        <div className="t-card-title">Log {title}</div>
+        <form onSubmit={handleSubmit}>
           <div className="t-form-row">
             <label>Date</label>
             <input
               type="date"
-              value={weightDate}
-              onChange={e => setWeightDate(e.target.value)}
+              value={entryDate}
+              onChange={e => setEntryDate(e.target.value)}
             />
           </div>
           <div className="t-form-row">
-            <label>Weight</label>
+            <label>{title}</label>
             <input
               type="number"
-              placeholder="kg"
-              value={weightValue}
-              onChange={e => setWeightValue(e.target.value)}
-              min="0.1"
-              max="50"
-              step="0.01"
+              placeholder={placeholder}
+              value={entryValue}
+              onChange={e => setEntryValue(e.target.value)}
+              min={inputMin}
+              max={inputMax}
+              step={inputStep}
             />
           </div>
           <button type="submit" className="t-btn t-btn-primary">
-            Log Weight
+            Log {title}
           </button>
         </form>
       </div>
 
-      {weights.length >= 2 && (
+      {entries.length >= 2 && (
         <div className="t-card">
-          <div className="t-card-title">Weight Chart</div>
+          <div className="t-card-title">{title} Chart</div>
 
           {hasPercentileContext && trend && (
             <div style={{
@@ -321,7 +331,7 @@ export default function WeightView() {
               <div>
                 <strong>Currently ~{ordinal(trend.current)} percentile</strong>
                 <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
-                  {' '}(WHO {childSex === 'female' ? 'girls' : 'boys'} weight-for-age)
+                  {' '}(WHO {sexLabel} {sourceLabel})
                 </span>
               </div>
               {trend.previous != null && trend.previousDate !== trend.latestDate && (
@@ -359,8 +369,8 @@ export default function WeightView() {
               onClick={handleCanvasPointer}
               onMouseMove={handleCanvasPointer}
               onMouseLeave={() => setActivePointIdx(null)}
-              onTouchStart={(e) => {
-                const t = e.touches[0]
+              onTouchStart={(ev) => {
+                const t = ev.touches[0]
                 if (t) handleCanvasPointer({ clientX: t.clientX, clientY: t.clientY })
               }}
             />
@@ -381,7 +391,7 @@ export default function WeightView() {
                 zIndex: 5,
               }}>
                 <div style={{ fontWeight: 700 }}>{formatDate(activeEntry.date)}</div>
-                <div>{Number(activeEntry.value).toFixed(2)} kg</div>
+                <div>{Number(activeEntry.value).toFixed(decimals)} {unit}</div>
                 {activeEntry.percentile != null && (
                   <div style={{ color: '#ffd6a5' }}>~{ordinal(activeEntry.percentile)} percentile</div>
                 )}
@@ -403,30 +413,30 @@ export default function WeightView() {
       )}
 
       <div className="t-card">
-        <div className="t-card-title">Weight History</div>
-        {weights.length === 0 ? (
-          <div className="t-empty-state">No weight entries recorded yet</div>
+        <div className="t-card-title">{title} History</div>
+        {entries.length === 0 ? (
+          <div className="t-empty-state">No {title.toLowerCase()} entries recorded yet</div>
         ) : (
-          [...enriched].reverse().map(wt => (
-            <div className="t-feed-entry" key={wt.date}>
-              <span className="t-feed-time">{formatDate(wt.date)}</span>
+          [...enriched].reverse().map(e => (
+            <div className="t-feed-entry" key={e.date}>
+              <span className="t-feed-time">{formatDate(e.date)}</span>
               <span className="t-feed-amount">
-                {wt.value}<span className="t-feed-unit">kg</span>
-                {wt.percentile != null && (
+                {e.value}<span className="t-feed-unit">{unit}</span>
+                {e.percentile != null && (
                   <span style={{
                     marginLeft: 8,
                     fontSize: '0.7rem',
                     color: 'var(--color-text-muted)',
                     fontWeight: 600,
                   }}>
-                    ~{ordinal(wt.percentile)}
+                    ~{ordinal(e.percentile)}
                   </span>
                 )}
               </span>
               <button
                 className="t-delete-btn"
-                onClick={() => handleDelete(wt.date)}
-                title="Delete weight"
+                onClick={() => handleDelete(e.date)}
+                title={`Delete ${title.toLowerCase()}`}
               >
                 ✕
               </button>
@@ -434,6 +444,6 @@ export default function WeightView() {
           ))
         )}
       </div>
-    </div>
+    </>
   )
 }
