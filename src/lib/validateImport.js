@@ -1,6 +1,8 @@
 const VALID_CATEGORIES = ['heart', 'diuretic', 'stomach', 'blood', 'other']
 const VALID_TRACKER_TYPES = ['number', 'counter', 'note']
-const VALID_FEED_TYPES = ['bottle', 'tube', 'breast']
+// 'tube' kept as legacy value so old backups still validate. New entries
+// should pick a specific tube subtype.
+const VALID_FEED_TYPES = ['bottle', 'breast', 'tube', 'ng_tube', 'nj_tube', 'g_tube', 'j_tube']
 const VALID_SUPPLY_UNITS = ['mL', 'tablets', 'capsules', 'doses', 'puffs']
 const VALID_CONTACT_ROLES = ['Cardiologist', 'Paediatrician', 'GP', 'Surgeon', 'Pharmacy', 'Hospital', 'Therapist', 'Nurse', 'Dietitian', 'Other']
 const TIME_RE = /^\d{2}:\d{2}$/
@@ -36,7 +38,28 @@ function normalizeTrackerType(type) {
 
 function normalizeFeedType(type) {
   if (!type) return 'bottle'
-  const lower = type.toLowerCase().trim()
+  const lower = type.toLowerCase().trim().replace(/-/g, '_').replace(/\s+/g, '_')
+  // Common aliases the AI might output
+  const aliases = {
+    'ng': 'ng_tube',
+    'nasogastric': 'ng_tube',
+    'nasogastric_tube': 'ng_tube',
+    'nj': 'nj_tube',
+    'nasojejunal': 'nj_tube',
+    'nasojejunal_tube': 'nj_tube',
+    'g': 'g_tube',
+    'gastrostomy': 'g_tube',
+    'gastrostomy_tube': 'g_tube',
+    'peg': 'g_tube',
+    'peg_tube': 'g_tube',
+    'j': 'j_tube',
+    'jejunostomy': 'j_tube',
+    'jejunostomy_tube': 'j_tube',
+    'bottle_feed': 'bottle',
+    'breastfeed': 'breast',
+    'breastfeeding': 'breast',
+  }
+  if (aliases[lower]) return aliases[lower]
   return VALID_FEED_TYPES.includes(lower) ? lower : 'bottle'
 }
 
@@ -214,6 +237,7 @@ export function validateImport(rawText) {
     medications: [],
     trackers: [],
     weights: [],
+    heights: [],
     feedSchedule: null,
     feedPlan: null,
     contacts: [],
@@ -307,6 +331,22 @@ export function validateImport(rawText) {
     })
   }
 
+  // Validate heights (cm). Same shape as weights — date + value.
+  const heights = parsed.heights || []
+  if (Array.isArray(heights)) {
+    heights.forEach((h, i) => {
+      const val = parseFloat(h.value)
+      if (!val || val < 30 || val > 200) {
+        errors.push(`Height #${i + 1}: invalid value (must be 30-200 cm)`)
+        return
+      }
+      result.heights.push({
+        date: h.date || null,
+        value: val
+      })
+    })
+  }
+
   // Validate feed schedule
   const feedSchedule = parsed.feed_schedule || parsed.feedSchedule || null
   if (feedSchedule && typeof feedSchedule === 'object') {
@@ -388,11 +428,11 @@ export function validateImport(rawText) {
 
   const histCount = result.history ? historyCount(result.history) : 0
   const hasData = result.medications.length > 0 || result.trackers.length > 0 ||
-    result.weights.length > 0 || result.feedSchedule || result.feedPlan || result.contacts.length > 0 ||
-    result.notes.length > 0 || histCount > 0
+    result.weights.length > 0 || result.heights.length > 0 || result.feedSchedule || result.feedPlan ||
+    result.contacts.length > 0 || result.notes.length > 0 || histCount > 0
 
   if (!hasData && errors.length === 0) {
-    errors.push('No medications, trackers, weights, contacts, or notes found in the JSON. Make sure the AI formatted its response correctly.')
+    errors.push('No medications, trackers, weights, heights, contacts, or notes found in the JSON. Make sure the AI formatted its response correctly.')
   }
 
   return {

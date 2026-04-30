@@ -54,6 +54,12 @@ When ready, output a JSON object with this exact format. Only include sections t
       "value": 3.2
     }
   ],
+  "heights": [
+    {
+      "date": "YYYY-MM-DD",
+      "value": 56.4
+    }
+  ],
   "feed_schedule": {
     "times": ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
     "target_amount": 90,
@@ -86,7 +92,8 @@ Rules:
 - feed_schedule.times must be an array of HH:MM strings for each scheduled feed
 - feed_schedule.target_amount is the target mL per feed as a number
 - If the source mentions a feeding schedule with specific times, use feed_schedule. If it only describes a general plan, use feed_plan
-- Weight value in kg
+- Weight value in kg (0.1–50 range). Convert grams to kg if needed (e.g. 7530g → 7.53)
+- Height value in cm (30–200 range). Convert mm to cm if needed (e.g. 565mm → 56.5). The "heights" array is for length/height measurements; only include it when the source explicitly mentions a height/length
 - Include ALL medications mentioned
 - If unsure about a category, use "other"
 - Contact role must be one of: Cardiologist, Paediatrician, GP, Surgeon, Pharmacy, Hospital, Therapist, Nurse, Dietitian, Other
@@ -199,7 +206,7 @@ export default function PromptStep({ onNext, onBack }) {
         <ul style={{ paddingLeft: 18, margin: 0 }}>
           <li style={{ marginBottom: 2 }}>Discharge papers or hospital med list &rarr; bulk import all medications</li>
           <li style={{ marginBottom: 2 }}>Photo of a prescription label/bottle &rarr; adds medication with supply &amp; expiry tracking</li>
-          <li style={{ marginBottom: 2 }}>Photo of the clinic whiteboard &rarr; adds today&apos;s weight</li>
+          <li style={{ marginBottom: 2 }}>Photo of the clinic whiteboard &rarr; adds today&apos;s weight &amp; height</li>
           <li style={{ marginBottom: 2 }}>Photo of a feeding plan update &rarr; sets up feed schedule with reminders</li>
           <li>Discharge papers with team contacts &rarr; imports all medical contacts</li>
           <li>&ldquo;We started tracking oxygen sats every 4 hours&rdquo; &rarr; adds a tracker</li>
