@@ -2,6 +2,7 @@ import jsPDF from 'jspdf'
 import { formatTime12, formatDate, today, daysAgo } from './dateUtils'
 import { typeLabels } from './constants'
 import { ageInMonths, estimatePercentile, ordinal } from './whoGrowthStandards'
+import { renderGrowthChartPng, canDrawGrowthChart } from './growthChart'
 
 const COLORS = {
   primary: [232, 108, 80],
@@ -619,7 +620,6 @@ export function generateGrowthReport(data, child) {
     y += 8
   }
 
-  // ===== Weight history table =====
   function ensureSpace(needed) {
     if (y + needed > 280) {
       addFooter(doc, doc.internal.getNumberOfPages())
@@ -628,6 +628,49 @@ export function generateGrowthReport(data, child) {
     }
   }
 
+  // ===== Embedded charts =====
+  // Render the on-screen growth chart to an off-screen canvas, then embed
+  // the resulting PNG. Crispness via 2x dpr inside renderGrowthChartPng.
+  function embedChart(title, entries, metric) {
+    if (!canDrawGrowthChart(entries)) return
+    ensureSpace(80)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text(title, 14, y)
+    y += 4
+    try {
+      const dataUrl = renderGrowthChartPng({
+        entries,
+        metric,
+        childSex: sex,
+        childDob: dob,
+        width: 1100,
+        height: 420,
+      })
+      // Place at full content width (14..196 = 182mm), 70mm tall — same aspect as 1100×420
+      doc.addImage(dataUrl, 'PNG', 14, y, 182, 70)
+      y += 72
+      if (hasContext) {
+        doc.setFontSize(7)
+        doc.setFont('helvetica', 'italic')
+        doc.setTextColor(...COLORS.muted)
+        doc.text('Bands: 3rd · 15th · 50th · 85th · 97th percentile (WHO)', 14, y)
+        y += 6
+      }
+    } catch (err) {
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'italic')
+      doc.setTextColor(...COLORS.muted)
+      doc.text('Chart could not be rendered.', 14, y + 4)
+      y += 10
+    }
+  }
+
+  embedChart('Weight Chart', data.weights || [], 'weight')
+  embedChart('Height Chart', data.heights || [], 'length')
+
+  // ===== History tables =====
   function drawHistoryTable(title, entries, unit, metric, decimals) {
     if (!entries || entries.length === 0) return
     ensureSpace(20)
@@ -685,13 +728,33 @@ export function generateGrowthReport(data, child) {
   doc.save(`growth-report-${childName.toLowerCase().replace(/\s+/g, '-')}-${today()}.pdf`)
 }
 
-export function generateWeeklyReport(data, child) {
+// Inclusive date iteration helper. Yields each YYYY-MM-DD between from and to.
+function datesBetween(from, to) {
+  const out = []
+  if (!from || !to || from > to) return out
+  let cur = new Date(from + 'T00:00:00')
+  const end = new Date(to + 'T00:00:00')
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10))
+    cur.setDate(cur.getDate() + 1)
+  }
+  return out
+}
+
+export function generateWeeklyReport(data, child, range) {
   const childName = typeof child === 'string' ? child : (child?.name || 'Child')
   const childObj = typeof child === 'string' ? null : child
   const doc = new jsPDF()
-  const endDate = today()
-  const startDate = daysAgo(6)
-  addHeader(doc, 'Weekly Report', `${childName} - ${formatDate(startDate)} to ${formatDate(endDate)}`)
+  // Default range: last 7 days. Custom range honored when both endpoints valid.
+  const endDate = range?.to || today()
+  const startDate = range?.from || daysAgo(6)
+  const allDates = datesBetween(startDate, endDate)
+  // Iterate from oldest to newest for tables, and reverse where we want newest-first
+  const dayCount = allDates.length
+  const rangeLabel = dayCount === 7
+    ? `${childName} - ${formatDate(startDate)} to ${formatDate(endDate)}`
+    : `${childName} - ${formatDate(startDate)} to ${formatDate(endDate)} (${dayCount} day${dayCount !== 1 ? 's' : ''})`
+  addHeader(doc, dayCount === 7 ? 'Weekly Report' : 'Period Report', rangeLabel)
 
   let y = 42
   function ensureSpace(needed) {
@@ -712,8 +775,7 @@ export function generateWeeklyReport(data, child) {
   let totalDoses = 0, givenDoses = 0
   // Per-med tally: { medId: { name, times: [], expected, given } }
   const perMed = {}
-  for (let i = 6; i >= 0; i--) {
-    const d = daysAgo(i)
+  for (const d of allDates) {
     data.medications.forEach(med => {
       if (!perMed[med.id]) perMed[med.id] = { name: med.name, expected: 0, given: 0 }
       med.times.forEach(t => {
@@ -791,8 +853,7 @@ export function generateWeeklyReport(data, child) {
   doc.setFontSize(9)
   let weekHasContinuous = false
   let weekHasEstimate = false
-  for (let i = 6; i >= 0; i--) {
-    const d = daysAgo(i)
+  for (const d of allDates) {
     const intake = dailyIntakeMl(data, d)
     const cont = dailyContinuousTotals(data.continuousFeedSessions, data.continuousFeedPauses, d)
     if (intake.continuous > 0) weekHasContinuous = true

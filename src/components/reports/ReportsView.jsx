@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { useTracker } from '../../contexts/TrackerContext'
 import { useFamily } from '../../contexts/FamilyContext'
 import { generateMedSchedule, generateDailySummary, generateWeeklyReport, generateGrowthReport } from '../../lib/pdfGenerator'
+import { today, daysAgo } from '../../lib/dateUtils'
 
 const reportTypes = [
   {
     id: 'med-schedule',
     title: 'Medication Schedule',
-    icon: '\uD83D\uDC8A',
+    icon: '💊',
     description: 'A complete list of current medications with doses, times, and instructions. Perfect for handing to a new nurse or specialist.',
     buttonLabel: 'Generate Med Schedule',
     generator: 'medSchedule',
@@ -16,24 +17,24 @@ const reportTypes = [
     id: 'growth-report',
     title: 'Growth Report',
     icon: '📏',
-    description: "Latest weight and height with WHO percentiles, 2-week percentile trend, and full history. Built for paediatric and cardiology appointments.",
+    description: "Latest weight and height with WHO percentiles, embedded growth charts with percentile bands, 2-week trend, and full history. Built for paediatric and cardiology appointments.",
     buttonLabel: 'Generate Growth Report',
     generator: 'growthReport',
   },
   {
     id: 'daily-summary',
     title: 'Daily Summary',
-    icon: '\uD83D\uDCCB',
-    description: 'Everything logged today — meds given, bolus & continuous feeds with totals, latest weight & height with percentiles, custom tracker entries, and notes. Great for end-of-day handover.',
+    icon: '📋',
+    description: 'Everything logged for the chosen day — meds given, bolus & continuous feeds with totals, latest weight & height with percentiles, custom tracker entries, and notes.',
     buttonLabel: 'Generate Daily Summary',
     generator: 'dailySummary',
   },
   {
     id: 'weekly-report',
-    title: 'Weekly Report',
-    icon: '\uD83D\uDCC8',
-    description: 'A 7-day overview: medication adherence (overall and per-medication), daily intake (bolus + continuous), weight & height trend with percentiles. Ideal for cardiology follow-ups.',
-    buttonLabel: 'Generate Weekly Report',
+    title: 'Period Report',
+    icon: '📈',
+    description: 'Custom date range overview: medication adherence (overall and per-medication), daily intake (bolus + continuous), weight & height trend with percentiles. Defaults to the last 7 days; pick any range for "last appointment to now".',
+    buttonLabel: 'Generate Period Report',
     generator: 'weeklyReport',
   },
 ]
@@ -44,16 +45,15 @@ export default function ReportsView() {
   const [generating, setGenerating] = useState(null)
   const [error, setError] = useState(null)
 
+  // Date controls — Daily uses one date, Period uses a from/to range
+  const todayStr = today()
+  const [dailyDate, setDailyDate] = useState(todayStr)
+  const [periodFrom, setPeriodFrom] = useState(daysAgo(6))
+  const [periodTo, setPeriodTo] = useState(todayStr)
+
   async function handleGenerate(type) {
     setGenerating(type)
     setError(null)
-
-    const context = {
-      child: activeChild,
-      family,
-      loggerName,
-      data,
-    }
 
     const childName = activeChild?.name || 'Child'
 
@@ -66,10 +66,14 @@ export default function ReportsView() {
           await generateGrowthReport(data, activeChild)
           break
         case 'dailySummary':
-          await generateDailySummary(data, activeChild)
+          await generateDailySummary(data, activeChild, dailyDate)
           break
         case 'weeklyReport':
-          await generateWeeklyReport(data, activeChild)
+          if (periodFrom > periodTo) {
+            setError('"From" date must be before "To" date.')
+            return
+          }
+          await generateWeeklyReport(data, activeChild, { from: periodFrom, to: periodTo })
           break
         default:
           break
@@ -80,6 +84,57 @@ export default function ReportsView() {
     } finally {
       setGenerating(null)
     }
+  }
+
+  function renderDateControls(reportId) {
+    if (reportId === 'daily-summary') {
+      return (
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>
+            Date
+          </label>
+          <input
+            type="date"
+            value={dailyDate}
+            max={todayStr}
+            onChange={e => setDailyDate(e.target.value)}
+            style={{ width: '100%' }}
+          />
+        </div>
+      )
+    }
+    if (reportId === 'weekly-report') {
+      return (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>
+              From
+            </label>
+            <input
+              type="date"
+              value={periodFrom}
+              max={periodTo}
+              onChange={e => setPeriodFrom(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>
+              To
+            </label>
+            <input
+              type="date"
+              value={periodTo}
+              min={periodFrom}
+              max={todayStr}
+              onChange={e => setPeriodTo(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
+      )
+    }
+    return null
   }
 
   return (
@@ -113,6 +168,7 @@ export default function ReportsView() {
                 <p style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: '14px' }}>
                   {report.description}
                 </p>
+                {renderDateControls(report.id)}
                 <button
                   className="ll-btn ll-btn-primary"
                   onClick={() => handleGenerate(report.generator)}
