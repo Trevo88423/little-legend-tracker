@@ -163,11 +163,11 @@ export default function TrackersView() {
                 <label>Type</label>
                 <select value={newType} onChange={e => setNewType(e.target.value)}>
                   <option value="counter">Counter (tap to increment)</option>
-                  <option value="value">Value (enter a number)</option>
-                  <option value="text">Text (enter details)</option>
+                  <option value="number">Value (enter a number)</option>
+                  <option value="note">Text (enter details)</option>
                 </select>
               </div>
-              {newType === 'value' && (
+              {newType === 'number' && (
                 <div className="t-form-row">
                   <label>Unit</label>
                   <input
@@ -208,7 +208,7 @@ export default function TrackersView() {
               </div>
               <div className="t-form-row">
                 <label>Value</label>
-                {showLogModal.type === 'text' ? (
+                {showLogModal.type === 'note' ? (
                   <input
                     type="text"
                     placeholder="Enter details..."
