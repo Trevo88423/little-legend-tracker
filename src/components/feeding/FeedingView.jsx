@@ -7,7 +7,8 @@ import ContinuousFeedSection from './ContinuousFeedSection'
 export default function FeedingView() {
   const {
     data, getTodayFeeds, logFeed, deleteFeed,
-    saveFeedSchedule, deleteFeedSchedule, isFeedDone, getMatchingFeed, getFeedScheduleStats
+    saveFeedSchedule, deleteFeedSchedule, isFeedDone, getMatchingFeed, getFeedScheduleStats,
+    getPausesForSession, deleteContinuousFeedSession,
   } = useTracker()
 
   const [feedTime, setFeedTime] = useState(now24())
@@ -22,9 +23,52 @@ export default function FeedingView() {
   const [schedType, setSchedType] = useState('bottle')
 
   const todayFeeds = getTodayFeeds()
-  const totalMl = todayFeeds.reduce((sum, f) => sum + f.amount, 0)
   const schedule = data.feedSchedule
   const schedStats = getFeedScheduleStats()
+
+  // Merge bolus feeds and completed continuous sessions that ended today into
+  // a single time-ordered list. Continuous feeds use endedAt as the anchor
+  // time and either total_ml_actual or rate × on-pump-time as the amount.
+  const todayStr = today()
+  const todayContinuous = (data.continuousFeedSessions || [])
+    .filter(s => s.endedAt && s.endedAt.slice(0, 10) === todayStr)
+    .map(s => {
+      const startedTs = new Date(s.startedAt).getTime()
+      const endedTs = new Date(s.endedAt).getTime()
+      const sessionPauses = getPausesForSession(s.id)
+      const offMs = sessionPauses.reduce((sum, p) => {
+        if (!p.reconnectedAt) return sum
+        return sum + (new Date(p.reconnectedAt).getTime() - new Date(p.disconnectedAt).getTime())
+      }, 0)
+      const onPumpMs = (endedTs - startedTs) - offMs
+      const onPumpMin = Math.max(0, Math.round(onPumpMs / 60000))
+      const estimatedMl = s.rateMlHr != null
+        ? Math.round((s.rateMlHr * onPumpMs) / 3600000)
+        : null
+      const amount = s.totalMlActual != null ? s.totalMlActual : estimatedMl
+      const isEstimate = s.totalMlActual == null && estimatedMl != null
+      return {
+        kind: 'continuous',
+        id: s.id,
+        // HH:MM of endedAt for sorting
+        time: new Date(s.endedAt).toTimeString().slice(0, 5),
+        startTime: new Date(s.startedAt).toTimeString().slice(0, 5),
+        type: s.feedType,
+        amount: amount != null ? Number(amount) : null,
+        isEstimate,
+        onPumpMin,
+        offMs,
+        notes: s.notes,
+        loggedBy: s.startedBy,
+      }
+    })
+
+  const todayItems = [
+    ...todayFeeds.map(f => ({ kind: 'bolus', ...f })),
+    ...todayContinuous,
+  ].sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+
+  const totalMl = todayItems.reduce((sum, item) => sum + (item.amount || 0), 0)
 
   async function handleLogFeed(e) {
     e.preventDefault()
@@ -233,33 +277,80 @@ export default function FeedingView() {
 
       <div className="t-card">
         <div className="t-card-title">Today's Feeds</div>
-        {todayFeeds.length === 0 ? (
+        {todayItems.length === 0 ? (
           <div className="t-empty-state">No feeds recorded today</div>
         ) : (
           <>
-            {todayFeeds.map(feed => (
-              <div className="t-feed-entry" key={feed.id}>
-                <span className="t-feed-time">{formatTime12(feed.time)}</span>
-                <span className={`t-feed-type ${typeCls[feed.type] || ''}`}>
-                  {typeLabels[feed.type] || feed.type}
+            {todayItems.map(item => item.kind === 'bolus' ? (
+              <div className="t-feed-entry" key={`b-${item.id}`}>
+                <span className="t-feed-time">{formatTime12(item.time)}</span>
+                <span className={`t-feed-type ${typeCls[item.type] || ''}`}>
+                  {typeLabels[item.type] || item.type}
                 </span>
-                {feed.loggedBy && (
+                {item.loggedBy && (
                   <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                    {feed.loggedBy}
+                    {item.loggedBy}
                   </span>
                 )}
-                {feed.notes && (
+                {item.notes && (
                   <span style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', flex: 1 }}>
-                    {feed.notes}
+                    {item.notes}
                   </span>
                 )}
                 <span className="t-feed-amount">
-                  {feed.amount}<span className="t-feed-unit">mL</span>
+                  {item.amount}<span className="t-feed-unit">mL</span>
                 </span>
                 <button
                   className="t-delete-btn"
-                  onClick={() => handleDelete(feed.id)}
+                  onClick={() => handleDelete(item.id)}
                   title="Delete feed"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div
+                className="t-feed-entry"
+                key={`c-${item.id}`}
+                style={{ background: 'var(--color-bg)', borderRadius: 6, paddingLeft: 6 }}
+              >
+                <span className="t-feed-time">{formatTime12(item.startTime)}–{formatTime12(item.time)}</span>
+                <span className={`t-feed-type ${typeCls[item.type] || ''}`}>
+                  {typeLabels[item.type] || item.type}
+                </span>
+                <span style={{
+                  fontSize: '0.65rem', fontWeight: 700, color: 'var(--color-text-muted)',
+                  textTransform: 'uppercase', letterSpacing: 0.3,
+                }}>
+                  Continuous
+                </span>
+                {item.loggedBy && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                    {item.loggedBy}
+                  </span>
+                )}
+                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-secondary)', flex: 1 }}>
+                  {Math.floor(item.onPumpMin / 60)}h {item.onPumpMin % 60}m on pump
+                  {item.notes && ` · ${item.notes}`}
+                </span>
+                <span className="t-feed-amount">
+                  {item.amount != null ? (
+                    <>
+                      {item.isEstimate && <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>~</span>}
+                      {item.amount}<span className="t-feed-unit">mL</span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--color-text-muted)' }}>—</span>
+                  )}
+                </span>
+                <button
+                  className="t-delete-btn"
+                  onClick={async () => {
+                    if (!window.confirm('Delete this completed session?')) return
+                    try { await deleteContinuousFeedSession(item.id) }
+                    catch (err) { window.alert(`Couldn't delete: ${err.message || 'unknown error'}`) }
+                  }}
+                  title="Delete session"
                 >
                   ✕
                 </button>
@@ -273,6 +364,11 @@ export default function FeedingView() {
               color: 'var(--color-primary)'
             }}>
               Total: {totalMl} mL
+              {todayContinuous.some(c => c.isEstimate) && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontWeight: 400, marginLeft: 6 }}>
+                  (~ estimated from rate)
+                </span>
+              )}
             </div>
           </>
         )}
