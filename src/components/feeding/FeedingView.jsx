@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTracker } from '../../contexts/TrackerContext'
 import { today, now24, formatTime12 } from '../../lib/dateUtils'
 import { typeLabels, typeCls } from '../../lib/constants'
+import ContinuousFeedSection from './ContinuousFeedSection'
 
 export default function FeedingView() {
   const {
@@ -102,6 +103,8 @@ export default function FeedingView() {
 
   return (
     <div>
+      <ContinuousFeedSection />
+
       {/* Today's Schedule Card */}
       {schedule && schedule.times.length > 0 && (
         <div className="t-card">

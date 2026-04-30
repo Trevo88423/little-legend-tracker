@@ -111,6 +111,28 @@ export function dbToActivityLog(row) {
   return { id: row.id, timestamp: row.timestamp, type: row.type, message: row.message }
 }
 
+export function dbToContinuousFeedSession(row) {
+  return {
+    id: row.id,
+    feedType: row.feed_type,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    rateMlHr: row.rate_ml_hr != null ? Number(row.rate_ml_hr) : null,
+    totalMlActual: row.total_ml_actual != null ? Number(row.total_ml_actual) : null,
+    notes: row.notes,
+    startedBy: row.started_by,
+  }
+}
+
+export function dbToContinuousFeedPause(row) {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    disconnectedAt: row.disconnected_at,
+    reconnectedAt: row.reconnected_at,
+  }
+}
+
 // Build the local medLog map shape from an array of med_log rows.
 // Used by both the initial loader and the snapshot RPC consumer.
 export function medLogsToMap(rows) {
@@ -246,3 +268,5 @@ export const sortByTimestampDesc = (a, b) =>
   (b.timestamp || '').localeCompare(a.timestamp || '')
 export const sortByCreatedAtDesc = (a, b) =>
   (b.timestamp || '').localeCompare(a.timestamp || '') // notes use `timestamp` field
+export const sortByStartedAtDesc = (a, b) =>
+  (b.startedAt || '').localeCompare(a.startedAt || '')

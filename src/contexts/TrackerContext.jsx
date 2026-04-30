@@ -6,8 +6,10 @@ import { genId } from '../lib/idUtils'
 import {
   dbToMedication, dbToFeed, dbToWeight, dbToNote, dbToTracker, dbToTrackerLog,
   dbToContact, dbToFeedSchedule, dbToSettings, dbToActivityLog,
+  dbToContinuousFeedSession, dbToContinuousFeedPause,
   applyRowDelta, applyMedLogDelta, medLogsToMap,
   sortByName, sortByDateDescTimeDesc, sortByDateAsc, sortByCreatedAtDesc, sortByTimestampDesc,
+  sortByStartedAtDesc,
 } from '../lib/realtimeUtils'
 
 const TrackerContext = createContext(null)
@@ -28,6 +30,8 @@ export function TrackerProvider({ children }) {
     contacts: [],
     settings: { medAlarms: true, feedAlarms: false, soundAlerts: false },
     activityLog: [],
+    continuousFeedSessions: [],
+    continuousFeedPauses: [],
   })
 
   const familyId = family?.id
@@ -155,6 +159,25 @@ export function TrackerProvider({ children }) {
           })
         }))
       })
+      .on('postgres_changes', sub('continuous_feed_sessions'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          continuousFeedSessions: applyRowDelta({
+            list: prev.continuousFeedSessions, payload, childId,
+            transform: dbToContinuousFeedSession,
+            sortFn: sortByStartedAtDesc,
+          })
+        }))
+      })
+      .on('postgres_changes', sub('continuous_feed_pauses'), (payload) => {
+        setData(prev => ({
+          ...prev,
+          continuousFeedPauses: applyRowDelta({
+            list: prev.continuousFeedPauses, payload, childId,
+            transform: dbToContinuousFeedPause,
+          })
+        }))
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
@@ -179,6 +202,7 @@ export function TrackerProvider({ children }) {
         await Promise.all([
           loadMedications(), loadMedLogs(), loadFeeds(), loadFeedSchedule(), loadWeights(),
           loadNotes(), loadTrackers(), loadTrackerLogs(), loadContacts(), loadSettings(), loadActivityLog(),
+          loadContinuousFeedSessions(), loadContinuousFeedPauses(),
         ])
         return
       }
@@ -196,6 +220,8 @@ export function TrackerProvider({ children }) {
         contacts: (snapshot.contacts || []).map(dbToContact),
         settings: snapshot.settings ? dbToSettings(snapshot.settings) : prev.settings,
         activityLog: (snapshot.activity_log || []).map(dbToActivityLog),
+        continuousFeedSessions: (snapshot.continuous_feed_sessions || []).map(dbToContinuousFeedSession),
+        continuousFeedPauses: (snapshot.continuous_feed_pauses || []).map(dbToContinuousFeedPause),
       }))
     } catch (err) {
       console.error('Failed to load data:', err)
@@ -271,6 +297,19 @@ export function TrackerProvider({ children }) {
       .eq('family_id', familyId).eq('child_id', childId)
       .order('timestamp', { ascending: false }).limit(200)
     setData(prev => ({ ...prev, activityLog: (rows || []).map(dbToActivityLog) }))
+  }
+
+  async function loadContinuousFeedSessions() {
+    const { data: rows } = await supabase.from('continuous_feed_sessions').select('*')
+      .eq('family_id', familyId).eq('child_id', childId)
+      .order('started_at', { ascending: false })
+    setData(prev => ({ ...prev, continuousFeedSessions: (rows || []).map(dbToContinuousFeedSession) }))
+  }
+
+  async function loadContinuousFeedPauses() {
+    const { data: rows } = await supabase.from('continuous_feed_pauses').select('*')
+      .eq('family_id', familyId).eq('child_id', childId)
+    setData(prev => ({ ...prev, continuousFeedPauses: (rows || []).map(dbToContinuousFeedPause) }))
   }
 
   // ==================== ACTIVITY LOGGING ====================
@@ -376,6 +415,143 @@ export function TrackerProvider({ children }) {
     setData(prev => ({ ...prev, feedSchedule: null }))
     await supabase.from('feed_schedules').delete().eq('id', id)
     logActivity('feed', `Deleted feed schedule — ${loggerName}`)
+  }
+
+  // ==================== CONTINUOUS TUBE FEEDS ====================
+  // Session lifecycle: start → (disconnect → reconnect)* → end. The DB
+  // partial unique index (cf_sessions_one_active_per_child) prevents two
+  // active sessions per child. All writes check error and roll back via
+  // reload + throw so the UI surfaces the actual problem.
+
+  function getActiveContinuousSession() {
+    return data.continuousFeedSessions.find(s => !s.endedAt) || null
+  }
+
+  function getActivePauseFor(sessionId) {
+    if (!sessionId) return null
+    return data.continuousFeedPauses.find(p => p.sessionId === sessionId && !p.reconnectedAt) || null
+  }
+
+  function getPausesForSession(sessionId) {
+    return data.continuousFeedPauses
+      .filter(p => p.sessionId === sessionId)
+      .sort((a, b) => (a.disconnectedAt || '').localeCompare(b.disconnectedAt || ''))
+  }
+
+  async function startContinuousFeed({ feedType, rateMlHr, notes }) {
+    if (getActiveContinuousSession()) {
+      throw new Error('A continuous feed is already active. End it before starting a new one.')
+    }
+    const id = genId()
+    const startedAt = new Date().toISOString()
+    const session = {
+      id, feedType, startedAt, endedAt: null,
+      rateMlHr: rateMlHr != null && rateMlHr !== '' ? Number(rateMlHr) : null,
+      totalMlActual: null,
+      notes: notes || null,
+      startedBy: loggerName,
+    }
+    setData(prev => ({
+      ...prev,
+      continuousFeedSessions: [session, ...prev.continuousFeedSessions],
+    }))
+    const { error } = await supabase.from('continuous_feed_sessions').insert({
+      id, ...fq(),
+      feed_type: feedType,
+      started_at: startedAt,
+      rate_ml_hr: session.rateMlHr,
+      notes: session.notes,
+      started_by: loggerName,
+    })
+    if (error) { loadContinuousFeedSessions(); throw error }
+    const rateLabel = session.rateMlHr ? `${session.rateMlHr}mL/hr ` : ''
+    logActivity('feed', `Started ${rateLabel}continuous ${feedType.replace('_', ' ')} feed — ${loggerName}`)
+  }
+
+  async function disconnectContinuousFeed() {
+    const active = getActiveContinuousSession()
+    if (!active) throw new Error('No active continuous feed to disconnect.')
+    if (getActivePauseFor(active.id)) {
+      // Already disconnected — no-op
+      return
+    }
+    const id = genId()
+    const disconnectedAt = new Date().toISOString()
+    const pause = { id, sessionId: active.id, disconnectedAt, reconnectedAt: null }
+    setData(prev => ({
+      ...prev,
+      continuousFeedPauses: [...prev.continuousFeedPauses, pause],
+    }))
+    const { error } = await supabase.from('continuous_feed_pauses').insert({
+      id, session_id: active.id, ...fq(), disconnected_at: disconnectedAt,
+    })
+    if (error) { loadContinuousFeedPauses(); throw error }
+    logActivity('feed', `Disconnected from continuous feed — ${loggerName}`)
+  }
+
+  async function reconnectContinuousFeed() {
+    const active = getActiveContinuousSession()
+    if (!active) throw new Error('No active continuous feed.')
+    const pause = getActivePauseFor(active.id)
+    if (!pause) throw new Error('Not currently disconnected.')
+    const reconnectedAt = new Date().toISOString()
+    setData(prev => ({
+      ...prev,
+      continuousFeedPauses: prev.continuousFeedPauses.map(p =>
+        p.id === pause.id ? { ...p, reconnectedAt } : p
+      ),
+    }))
+    const { error } = await supabase.from('continuous_feed_pauses')
+      .update({ reconnected_at: reconnectedAt })
+      .eq('id', pause.id)
+    if (error) { loadContinuousFeedPauses(); throw error }
+    const minutes = Math.round((new Date(reconnectedAt) - new Date(pause.disconnectedAt)) / 60000)
+    logActivity('feed', `Reconnected continuous feed (off ${minutes} min) — ${loggerName}`)
+  }
+
+  async function endContinuousFeed({ totalMlActual, notes } = {}) {
+    const active = getActiveContinuousSession()
+    if (!active) throw new Error('No active continuous feed to end.')
+    const endedAt = new Date().toISOString()
+    // Auto-reconnect any open pause first so the elapsed/disconnected math is consistent
+    const openPause = getActivePauseFor(active.id)
+    if (openPause) {
+      await supabase.from('continuous_feed_pauses')
+        .update({ reconnected_at: endedAt })
+        .eq('id', openPause.id)
+    }
+    const totalActual = totalMlActual != null && totalMlActual !== ''
+      ? Number(totalMlActual) : null
+    setData(prev => ({
+      ...prev,
+      continuousFeedSessions: prev.continuousFeedSessions.map(s =>
+        s.id === active.id ? { ...s, endedAt, totalMlActual: totalActual, notes: notes || s.notes } : s
+      ),
+      continuousFeedPauses: openPause
+        ? prev.continuousFeedPauses.map(p => p.id === openPause.id ? { ...p, reconnectedAt: endedAt } : p)
+        : prev.continuousFeedPauses,
+    }))
+    const { error } = await supabase.from('continuous_feed_sessions')
+      .update({ ended_at: endedAt, total_ml_actual: totalActual, notes: notes || active.notes })
+      .eq('id', active.id)
+    if (error) { loadContinuousFeedSessions(); loadContinuousFeedPauses(); throw error }
+    const durationMin = Math.round((new Date(endedAt) - new Date(active.startedAt)) / 60000)
+    const totalLabel = totalActual != null ? `${totalActual}mL over ` : ''
+    logActivity('feed', `Ended continuous feed: ${totalLabel}${Math.floor(durationMin / 60)}h ${durationMin % 60}m — ${loggerName}`)
+  }
+
+  async function deleteContinuousFeedSession(id) {
+    const target = data.continuousFeedSessions.find(s => s.id === id)
+    setData(prev => ({
+      ...prev,
+      continuousFeedSessions: prev.continuousFeedSessions.filter(s => s.id !== id),
+      continuousFeedPauses: prev.continuousFeedPauses.filter(p => p.sessionId !== id),
+    }))
+    const { error } = await supabase.from('continuous_feed_sessions').delete().eq('id', id)
+    if (error) { loadContinuousFeedSessions(); loadContinuousFeedPauses(); throw error }
+    if (target) {
+      logActivity('feed', `Deleted continuous feed session from ${target.startedAt.slice(0, 10)} — ${loggerName}`)
+    }
   }
 
   function isFeedDone(scheduledTime) {
@@ -708,6 +884,10 @@ export function TrackerProvider({ children }) {
       isMedGiven, toggleMed, resetMedsForDay, saveMedication, deleteMedication, openNewBottle, getMedSupplyInfo, getMedsNeedingAttention,
       // Feed operations
       logFeed, deleteFeed, saveFeedSchedule, deleteFeedSchedule, isFeedDone, getMatchingFeed, getFeedScheduleStats,
+      // Continuous tube feed operations
+      startContinuousFeed, disconnectContinuousFeed, reconnectContinuousFeed,
+      endContinuousFeed, deleteContinuousFeedSession,
+      getActiveContinuousSession, getActivePauseFor, getPausesForSession,
       // Weight operations
       logWeight, deleteWeight,
       // Note operations
@@ -734,7 +914,7 @@ export function TrackerProvider({ children }) {
 
 const EMPTY_TRACKER = {
   loading: true,
-  data: { medications: [], medLog: {}, feeds: [], feedSchedule: null, weights: [], trackers: [], trackerLogs: [], notes: [], contacts: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [] },
+  data: { medications: [], medLog: {}, feeds: [], feedSchedule: null, weights: [], trackers: [], trackerLogs: [], notes: [], contacts: [], settings: { medAlarms: false, feedAlarms: false, soundAlerts: false }, activityLog: [], continuousFeedSessions: [], continuousFeedPauses: [] },
   loggerName: '',
   isMedGiven: () => false,
   toggleSetting: () => {},
@@ -762,6 +942,14 @@ const EMPTY_TRACKER = {
   addContact: async () => {},
   updateContact: async () => {},
   deleteContact: async () => {},
+  startContinuousFeed: async () => {},
+  disconnectContinuousFeed: async () => {},
+  reconnectContinuousFeed: async () => {},
+  endContinuousFeed: async () => {},
+  deleteContinuousFeedSession: async () => {},
+  getActiveContinuousSession: () => null,
+  getActivePauseFor: () => null,
+  getPausesForSession: () => [],
   logActivity: async () => {},
   getTimeSlots: () => [],
   getNextMed: () => null,

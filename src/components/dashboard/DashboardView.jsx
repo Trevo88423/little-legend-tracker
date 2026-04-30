@@ -7,7 +7,8 @@ import { catIcons, dotColors, activityIcons } from '../../lib/constants'
 export default function DashboardView() {
   const {
     data, getNextMed, getMedStats, getTodayFeeds, getLatestWeight,
-    isMedGiven, getTimeSlots, getMedsNeedingAttention
+    isMedGiven, getTimeSlots, getMedsNeedingAttention,
+    getActiveContinuousSession, getActivePauseFor,
   } = useTracker()
 
   const navigate = useNavigate()
@@ -65,8 +66,55 @@ export default function DashboardView() {
     localStorage.setItem('ll-ai-banner-dismissed', '1')
   }
 
+  // Active continuous feed banner — shows when a session is running so the
+  // user doesn't forget they're mid-feed. Tap to jump to the Feeding tab.
+  const activeFeed = getActiveContinuousSession()
+  const activeFeedPause = activeFeed ? getActivePauseFor(activeFeed.id) : null
+  const activeFeedElapsedMin = activeFeed
+    ? Math.round((Date.now() - new Date(activeFeed.startedAt).getTime()) / 60000)
+    : 0
+
   return (
     <div>
+      {activeFeed && (
+        <div
+          className="t-card"
+          style={{
+            cursor: 'pointer',
+            borderLeft: `4px solid ${activeFeedPause ? 'var(--color-amber, #f59e0b)' : 'var(--color-green, #22c55e)'}`,
+            background: 'var(--color-bg)',
+          }}
+          onClick={() => navigate('/app/feeding')}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{
+              display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+              background: activeFeedPause ? 'var(--color-amber, #f59e0b)' : 'var(--color-green, #22c55e)',
+              animation: activeFeedPause ? 'none' : 'll-feed-pulse 2s ease-in-out infinite',
+              flexShrink: 0,
+            }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>
+                {activeFeedPause ? 'Continuous feed disconnected' : 'Continuous feed running'}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                Started {Math.floor(activeFeedElapsedMin / 60)}h {activeFeedElapsedMin % 60}m ago
+                {activeFeed.rateMlHr != null && ` · ${activeFeed.rateMlHr} mL/hr`}
+              </div>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-primary)', fontWeight: 700 }}>
+              Open →
+            </span>
+          </div>
+          <style>{`
+            @keyframes ll-feed-pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.4; }
+            }
+          `}</style>
+        </div>
+      )}
+
       {showAiBanner && (
         <div
           className="t-card"
