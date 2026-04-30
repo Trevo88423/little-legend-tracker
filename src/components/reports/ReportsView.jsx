@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTracker } from '../../contexts/TrackerContext'
 import { useFamily } from '../../contexts/FamilyContext'
-import { generateMedSchedule, generateDailySummary, generateWeeklyReport } from '../../lib/pdfGenerator'
+import { generateMedSchedule, generateDailySummary, generateWeeklyReport, generateGrowthReport } from '../../lib/pdfGenerator'
 
 const reportTypes = [
   {
@@ -13,10 +13,18 @@ const reportTypes = [
     generator: 'medSchedule',
   },
   {
+    id: 'growth-report',
+    title: 'Growth Report',
+    icon: '📏',
+    description: "Latest weight and height with WHO percentiles, 2-week percentile trend, and full history. Built for paediatric and cardiology appointments.",
+    buttonLabel: 'Generate Growth Report',
+    generator: 'growthReport',
+  },
+  {
     id: 'daily-summary',
     title: 'Daily Summary',
     icon: '\uD83D\uDCCB',
-    description: 'Everything logged today — medications given, feeds, weight, notes, and custom tracker entries. Great for end-of-day handover.',
+    description: 'Everything logged today — meds given, bolus & continuous feeds with totals, latest weight & height with percentiles, custom tracker entries, and notes. Great for end-of-day handover.',
     buttonLabel: 'Generate Daily Summary',
     generator: 'dailySummary',
   },
@@ -24,7 +32,7 @@ const reportTypes = [
     id: 'weekly-report',
     title: 'Weekly Report',
     icon: '\uD83D\uDCC8',
-    description: 'A 7-day overview of medication adherence, feeding totals, weight trend, and activity log. Ideal for cardiology follow-ups.',
+    description: 'A 7-day overview: medication adherence (overall and per-medication), daily intake (bolus + continuous), weight & height trend with percentiles. Ideal for cardiology follow-ups.',
     buttonLabel: 'Generate Weekly Report',
     generator: 'weeklyReport',
   },
@@ -54,11 +62,14 @@ export default function ReportsView() {
         case 'medSchedule':
           await generateMedSchedule(data.medications || [], childName)
           break
+        case 'growthReport':
+          await generateGrowthReport(data, activeChild)
+          break
         case 'dailySummary':
-          await generateDailySummary(data, childName)
+          await generateDailySummary(data, activeChild)
           break
         case 'weeklyReport':
-          await generateWeeklyReport(data, childName)
+          await generateWeeklyReport(data, activeChild)
           break
         default:
           break

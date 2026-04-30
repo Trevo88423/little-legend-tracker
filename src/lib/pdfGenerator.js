@@ -1,5 +1,7 @@
 import jsPDF from 'jspdf'
 import { formatTime12, formatDate, today, daysAgo } from './dateUtils'
+import { typeLabels } from './constants'
+import { ageInMonths, estimatePercentile, ordinal } from './whoGrowthStandards'
 
 const COLORS = {
   primary: [232, 108, 80],
@@ -19,6 +21,90 @@ const CAT_COLORS = {
   stomach: [139, 108, 193],
   blood: [212, 147, 10],
   other: [168, 152, 136],
+}
+
+// ===== Shared helpers =====
+
+function formatFeedType(type) {
+  return typeLabels[type] || type || ''
+}
+
+function pausesForSession(allPauses, sessionId) {
+  return (allPauses || []).filter(p => p.sessionId === sessionId)
+}
+
+// On-pump minutes for a completed session (excludes disconnect time).
+function sessionOnPumpMin(session, allPauses) {
+  if (!session.endedAt) return 0
+  const start = new Date(session.startedAt).getTime()
+  const end = new Date(session.endedAt).getTime()
+  const offMs = pausesForSession(allPauses, session.id).reduce((sum, p) => {
+    if (!p.reconnectedAt) return sum
+    return sum + (new Date(p.reconnectedAt).getTime() - new Date(p.disconnectedAt).getTime())
+  }, 0)
+  return Math.max(0, Math.round((end - start - offMs) / 60000))
+}
+
+function sessionDisconnectMin(session, allPauses) {
+  const offMs = pausesForSession(allPauses, session.id).reduce((sum, p) => {
+    if (!p.reconnectedAt) return sum
+    return sum + (new Date(p.reconnectedAt).getTime() - new Date(p.disconnectedAt).getTime())
+  }, 0)
+  return Math.round(offMs / 60000)
+}
+
+// mL from actual reading, or estimated from rate × on-pump time.
+// Returns { ml, isEstimate } or { ml: null, isEstimate: false } if unknowable.
+function sessionMl(session, allPauses) {
+  if (session.totalMlActual != null) return { ml: Number(session.totalMlActual), isEstimate: false }
+  if (session.rateMlHr != null) {
+    const onPumpMin = sessionOnPumpMin(session, allPauses)
+    return { ml: Math.round((session.rateMlHr * onPumpMin) / 60), isEstimate: true }
+  }
+  return { ml: null, isEstimate: false }
+}
+
+function formatHM(minutes) {
+  if (!minutes) return '0m'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (h === 0) return `${m}m`
+  return `${h}h ${m}m`
+}
+
+// Sessions whose endedAt falls on the given date (matches Today's Feeds behavior)
+function continuousSessionsForDate(sessions, date) {
+  return (sessions || []).filter(s => s.endedAt && s.endedAt.slice(0, 10) === date)
+}
+
+// Compute totals (on-pump min, mL, session count) for a single date
+function dailyContinuousTotals(sessions, pauses, date) {
+  const day = continuousSessionsForDate(sessions, date)
+  let onPumpMin = 0, totalMl = 0, hasEstimate = false
+  for (const s of day) {
+    onPumpMin += sessionOnPumpMin(s, pauses)
+    const { ml, isEstimate } = sessionMl(s, pauses)
+    if (ml != null) totalMl += ml
+    if (isEstimate) hasEstimate = true
+  }
+  return { onPumpMin, totalMl, sessionCount: day.length, hasEstimate }
+}
+
+// Combined daily intake: bolus mL + continuous mL for a given date
+function dailyIntakeMl(data, date) {
+  const bolus = (data.feeds || []).filter(f => f.date === date).reduce((s, f) => s + Number(f.amount || 0), 0)
+  const cont = dailyContinuousTotals(data.continuousFeedSessions, data.continuousFeedPauses, date)
+  return { bolus, continuous: cont.totalMl, total: bolus + cont.totalMl, hasEstimate: cont.hasEstimate }
+}
+
+// Format a percentile label given a child + metric + measurement, or '' if no context
+function percentileLabel(child, metric, dateStr, value) {
+  const sex = child?.sex
+  const dob = child?.date_of_birth
+  if (!sex || !dob || sex === 'other' || value == null) return ''
+  const months = ageInMonths(dob, dateStr)
+  const p = estimatePercentile(metric, sex, months, Number(value))
+  return p != null ? `~${ordinal(p)}` : ''
 }
 
 function addHeader(doc, title, childName) {
@@ -124,14 +210,23 @@ export function generateMedSchedule(medications, childName) {
   doc.save(`med-schedule-${childName.toLowerCase().replace(/\s+/g, '-')}.pdf`)
 }
 
-export function generateDailySummary(data, childName, date) {
+export function generateDailySummary(data, child, date) {
+  const childName = typeof child === 'string' ? child : (child?.name || 'Child')
+  const childObj = typeof child === 'string' ? null : child
   const d = date || today()
   const doc = new jsPDF()
   addHeader(doc, 'Daily Summary', `${childName} - ${formatDate(d)}`)
 
   let y = 42
+  function ensureSpace(needed) {
+    if (y + needed > 280) {
+      addFooter(doc, doc.internal.getNumberOfPages())
+      doc.addPage()
+      y = 20
+    }
+  }
 
-  // Medication checklist
+  // ===== Medications =====
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(...COLORS.text)
@@ -154,8 +249,8 @@ export function generateDailySummary(data, childName, date) {
       const given = data.medLog[d] && data.medLog[d][key]
       if (given) givenMeds++
 
+      ensureSpace(7)
       doc.setFontSize(9)
-      // Checkbox
       doc.setDrawColor(...COLORS.border)
       doc.rect(16, y - 4, 4, 4)
       if (given) {
@@ -185,54 +280,166 @@ export function generateDailySummary(data, childName, date) {
   doc.text(`${givenMeds}/${totalMeds} medications given`, 14, y + 2)
   y += 14
 
-  // Feeds
+  // ===== Feeds (bolus + continuous) =====
+  ensureSpace(20)
   doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.text)
   doc.text('Feeds', 14, y)
   y += 8
 
-  const dayFeeds = data.feeds.filter(f => f.date === d).sort((a, b) => a.time.localeCompare(b.time))
-  if (dayFeeds.length === 0) {
+  const dayBolus = (data.feeds || []).filter(f => f.date === d).sort((a, b) => a.time.localeCompare(b.time))
+  const dayContinuous = continuousSessionsForDate(data.continuousFeedSessions, d)
+    .sort((a, b) => (a.endedAt || '').localeCompare(b.endedAt || ''))
+
+  if (dayBolus.length === 0 && dayContinuous.length === 0) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(...COLORS.muted)
-    doc.text('No feeds logged', 14, y)
+    doc.text('No feeds logged today', 14, y)
     y += 8
   } else {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
-    dayFeeds.forEach(f => {
+    dayBolus.forEach(f => {
+      ensureSpace(6)
       doc.setTextColor(...COLORS.text)
-      doc.text(`${formatTime12(f.time)} - ${f.type} ${f.amount}mL`, 16, y)
+      doc.text(`${formatTime12(f.time)} - ${formatFeedType(f.type)} ${f.amount}mL`, 16, y)
       if (f.notes) {
         doc.setTextColor(...COLORS.muted)
-        doc.text(f.notes, 90, y)
+        doc.text(String(f.notes).substring(0, 60), 90, y)
       }
       y += 6
     })
-    const totalMl = dayFeeds.reduce((s, f) => s + f.amount, 0)
+
+    dayContinuous.forEach(s => {
+      ensureSpace(6)
+      const onPump = sessionOnPumpMin(s, data.continuousFeedPauses)
+      const off = sessionDisconnectMin(s, data.continuousFeedPauses)
+      const { ml, isEstimate } = sessionMl(s, data.continuousFeedPauses)
+      const startT = formatTime12(s.startedAt.slice(11, 16))
+      const endT = formatTime12(s.endedAt.slice(11, 16))
+      doc.setTextColor(...COLORS.text)
+      doc.text(`${startT}\u2013${endT} - ${formatFeedType(s.feedType)} (continuous)`, 16, y)
+      doc.setTextColor(...COLORS.muted)
+      const detail = ml != null
+        ? `${isEstimate ? '~' : ''}${ml}mL \u00b7 ${formatHM(onPump)} on pump${off ? ` \u00b7 ${formatHM(off)} off` : ''}`
+        : `${formatHM(onPump)} on pump${off ? ` \u00b7 ${formatHM(off)} off` : ''}`
+      doc.text(detail, 110, y)
+      y += 6
+    })
+
+    const intake = dailyIntakeMl(data, d)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(...COLORS.text)
-    doc.text(`Total: ${totalMl}mL across ${dayFeeds.length} feeds`, 14, y + 2)
+    const totalLabel = intake.continuous > 0
+      ? `Total: ${intake.total}mL ${intake.hasEstimate ? '(includes estimates) ' : ''}\u2014 ${intake.bolus}mL bolus + ${intake.continuous}mL continuous`
+      : `Total: ${intake.total}mL across ${dayBolus.length} feed${dayBolus.length !== 1 ? 's' : ''}`
+    doc.text(totalLabel, 14, y + 2)
     y += 12
   }
 
-  // Weight
+  // ===== Latest Weight =====
+  ensureSpace(20)
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.text)
   doc.text('Latest Weight', 14, y)
   y += 8
-  const latestWeight = data.weights.length > 0 ? data.weights[data.weights.length - 1] : null
+  const latestWeight = data.weights?.length ? data.weights[data.weights.length - 1] : null
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   if (latestWeight) {
-    doc.text(`${latestWeight.value.toFixed(3)}kg on ${formatDate(latestWeight.date)}`, 14, y)
+    doc.setTextColor(...COLORS.text)
+    doc.text(`${Number(latestWeight.value).toFixed(2)}kg on ${formatDate(latestWeight.date)}`, 14, y)
+    const pl = percentileLabel(childObj, 'weight', latestWeight.date, latestWeight.value)
+    if (pl) {
+      doc.setTextColor(...COLORS.primary)
+      doc.text(`(${pl} percentile)`, 90, y)
+    }
   } else {
     doc.setTextColor(...COLORS.muted)
     doc.text('No weight recorded', 14, y)
   }
+  y += 10
+
+  // ===== Latest Height =====
+  ensureSpace(20)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.text)
+  doc.text('Latest Height', 14, y)
+  y += 8
+  const latestHeight = data.heights?.length ? data.heights[data.heights.length - 1] : null
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  if (latestHeight) {
+    doc.setTextColor(...COLORS.text)
+    doc.text(`${Number(latestHeight.value).toFixed(1)}cm on ${formatDate(latestHeight.date)}`, 14, y)
+    const pl = percentileLabel(childObj, 'length', latestHeight.date, latestHeight.value)
+    if (pl) {
+      doc.setTextColor(...COLORS.primary)
+      doc.text(`(${pl} percentile)`, 90, y)
+    }
+  } else {
+    doc.setTextColor(...COLORS.muted)
+    doc.text('No height recorded', 14, y)
+  }
   y += 12
 
-  // Notes
+  // ===== Custom Tracker Entries (today) =====
+  const todayTrackerLogs = (data.trackerLogs || []).filter(l => l.date === d)
+  if (todayTrackerLogs.length > 0) {
+    ensureSpace(20)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text('Custom Tracker Entries', 14, y)
+    y += 8
+
+    // Group by tracker
+    const byTracker = {}
+    for (const log of todayTrackerLogs) {
+      if (!byTracker[log.trackerId]) byTracker[log.trackerId] = []
+      byTracker[log.trackerId].push(log)
+    }
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    for (const [trackerId, logs] of Object.entries(byTracker)) {
+      const tracker = (data.trackers || []).find(t => t.id === trackerId)
+      if (!tracker) continue
+      ensureSpace(6 + logs.length * 5)
+      doc.setTextColor(...COLORS.text)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`${tracker.icon || ''} ${tracker.name}`, 16, y)
+      if (tracker.type === 'counter') {
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(...COLORS.muted)
+        doc.text(`${logs.length} time${logs.length !== 1 ? 's' : ''}`, 110, y)
+        y += 6
+      } else {
+        y += 6
+        const sorted = [...logs].sort((a, b) => a.time.localeCompare(b.time))
+        sorted.forEach(l => {
+          ensureSpace(5)
+          doc.setFont('helvetica', 'normal')
+          doc.setTextColor(...COLORS.text)
+          const valueStr = `${l.value || ''}${tracker.unit ? ' ' + tracker.unit : ''}`
+          doc.text(`  ${formatTime12(l.time)} \u2014 ${valueStr}`, 18, y)
+          if (l.notes) {
+            doc.setTextColor(...COLORS.muted)
+            doc.text(String(l.notes).substring(0, 50), 110, y)
+          }
+          y += 5
+        })
+      }
+    }
+    y += 6
+  }
+
+  // ===== Notes =====
+  ensureSpace(20)
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(...COLORS.text)
@@ -249,6 +456,7 @@ export function generateDailySummary(data, childName, date) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     dayNotes.forEach(n => {
+      ensureSpace(12)
       doc.setTextColor(...COLORS.muted)
       doc.text(`${formatTime12(n.time)}${n.loggedBy ? ' - ' + n.loggedBy : ''}`, 14, y)
       y += 5
@@ -259,19 +467,242 @@ export function generateDailySummary(data, childName, date) {
     })
   }
 
-  addFooter(doc, 1)
+  addFooter(doc, doc.internal.getNumberOfPages())
   doc.save(`daily-summary-${childName.toLowerCase().replace(/\s+/g, '-')}-${d}.pdf`)
 }
 
-export function generateWeeklyReport(data, childName) {
+export function generateGrowthReport(data, child) {
+  const childName = child?.name || 'Child'
+  const sex = child?.sex
+  const dob = child?.date_of_birth
+  const hasContext = sex && dob && sex !== 'other'
+  const sexLabel = sex === 'female' ? 'girls' : 'boys'
+
+  const doc = new jsPDF()
+  addHeader(doc, 'Growth Report', childName)
+  let y = 42
+
+  // ===== Latest measurements =====
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.text)
+  doc.text('Latest Measurements', 14, y)
+  y += 8
+
+  const latestWeight = data.weights?.length ? data.weights[data.weights.length - 1] : null
+  const latestHeight = data.heights?.length ? data.heights[data.heights.length - 1] : null
+
+  // Weight tile
+  doc.setFillColor(...COLORS.bg)
+  doc.rect(14, y, 88, 28, 'F')
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.muted)
+  doc.text('WEIGHT', 18, y + 6)
+  doc.setFontSize(18)
+  doc.setTextColor(...COLORS.text)
+  if (latestWeight) {
+    doc.text(`${Number(latestWeight.value).toFixed(2)} kg`, 18, y + 18)
+    if (hasContext) {
+      const pl = percentileLabel(child, 'weight', latestWeight.date, latestWeight.value)
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...COLORS.primary)
+      doc.text(pl ? `${pl} percentile` : '', 18, y + 24)
+    }
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...COLORS.muted)
+    doc.text(formatDate(latestWeight.date), 96, y + 24, { align: 'right' })
+  } else {
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('No data', 18, y + 18)
+  }
+
+  // Height tile
+  doc.setFillColor(...COLORS.bg)
+  doc.rect(108, y, 88, 28, 'F')
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.muted)
+  doc.text('HEIGHT', 112, y + 6)
+  doc.setFontSize(18)
+  doc.setTextColor(...COLORS.text)
+  if (latestHeight) {
+    doc.text(`${Number(latestHeight.value).toFixed(1)} cm`, 112, y + 18)
+    if (hasContext) {
+      const pl = percentileLabel(child, 'length', latestHeight.date, latestHeight.value)
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...COLORS.primary)
+      doc.text(pl ? `${pl} percentile` : '', 112, y + 24)
+    }
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...COLORS.muted)
+    doc.text(formatDate(latestHeight.date), 190, y + 24, { align: 'right' })
+  } else {
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('No data', 112, y + 18)
+  }
+
+  y += 36
+
+  // ===== 2-week trend =====
+  function trendFor(metric, entries) {
+    if (!hasContext || entries.length < 2) return null
+    const latest = entries[entries.length - 1]
+    const latestPct = estimatePercentile(metric, sex, ageInMonths(dob, latest.date), Number(latest.value))
+    if (latestPct == null) return null
+    const latestTime = new Date(latest.date + 'T00:00:00').getTime()
+    const twoWeeks = latestTime - 14 * 24 * 60 * 60 * 1000
+    let prev = null
+    for (let i = entries.length - 2; i >= 0; i--) {
+      const t = new Date(entries[i].date + 'T00:00:00').getTime()
+      if (t <= twoWeeks) { prev = entries[i]; break }
+      prev = entries[i]
+    }
+    const prevPct = prev ? estimatePercentile(metric, sex, ageInMonths(dob, prev.date), Number(prev.value)) : null
+    return { latestPct, prevPct, prevDate: prev?.date }
+  }
+
+  const wTrend = trendFor('weight', data.weights || [])
+  const hTrend = trendFor('length', data.heights || [])
+
+  if (wTrend || hTrend) {
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text('Percentile Trend (last 2 weeks)', 14, y)
+    y += 7
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+
+    function drawTrendRow(label, t) {
+      if (!t) return
+      doc.setTextColor(...COLORS.text)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`${label}:`, 16, y)
+      doc.setFont('helvetica', 'normal')
+      if (t.prevPct != null && t.prevDate !== data[label === 'Weight' ? 'weights' : 'heights'].slice(-1)[0]?.date) {
+        const arrow = t.prevPct === t.latestPct ? '→' : t.latestPct > t.prevPct ? '↑' : '↓'
+        doc.text(`${arrow} ${ordinal(t.prevPct)} → ${ordinal(t.latestPct)}`, 50, y)
+        doc.setTextColor(...COLORS.muted)
+        doc.text(`(since ${formatDate(t.prevDate)})`, 100, y)
+      } else {
+        doc.text(`Currently ${ordinal(t.latestPct)} percentile`, 50, y)
+      }
+      y += 6
+    }
+    drawTrendRow('Weight', wTrend)
+    drawTrendRow('Height', hTrend)
+    y += 4
+  }
+
+  // Reference standard note
+  if (hasContext) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(...COLORS.muted)
+    doc.text(`Percentiles based on WHO Child Growth Standards (${sexLabel}, 0-24 months).`, 14, y)
+    y += 8
+  } else {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(...COLORS.muted)
+    const reason = !dob ? "child's date of birth" : 'sex'
+    doc.text(`Set ${reason} in Settings to see WHO percentile context.`, 14, y)
+    y += 8
+  }
+
+  // ===== Weight history table =====
+  function ensureSpace(needed) {
+    if (y + needed > 280) {
+      addFooter(doc, doc.internal.getNumberOfPages())
+      doc.addPage()
+      y = 20
+    }
+  }
+
+  function drawHistoryTable(title, entries, unit, metric, decimals) {
+    if (!entries || entries.length === 0) return
+    ensureSpace(20)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text(title, 14, y)
+    y += 7
+    // Table header
+    doc.setFillColor(...COLORS.bg)
+    doc.rect(14, y, 182, 7, 'F')
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('DATE', 16, y + 5)
+    doc.text('VALUE', 70, y + 5)
+    if (hasContext) doc.text('PERCENTILE', 110, y + 5)
+    doc.text('AGE', 160, y + 5)
+    y += 10
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    // Most recent first
+    const reversed = [...entries].reverse()
+    for (const e of reversed) {
+      ensureSpace(7)
+      doc.setTextColor(...COLORS.text)
+      doc.text(formatDate(e.date), 16, y)
+      doc.text(`${Number(e.value).toFixed(decimals)} ${unit}`, 70, y)
+      if (hasContext) {
+        const pct = estimatePercentile(metric, sex, ageInMonths(dob, e.date), Number(e.value))
+        if (pct != null) {
+          doc.setTextColor(...COLORS.primary)
+          doc.text(`${ordinal(pct)}`, 110, y)
+        }
+      }
+      doc.setTextColor(...COLORS.muted)
+      const months = dob ? ageInMonths(dob, e.date) : null
+      if (months != null) {
+        const m = Math.floor(months)
+        const w = Math.round((months - m) * 4.345)
+        doc.text(`${m}m ${w}w`, 160, y)
+      }
+      y += 6
+      doc.setDrawColor(...COLORS.border)
+      doc.line(14, y - 2, 196, y - 2)
+    }
+    y += 6
+  }
+
+  drawHistoryTable('Weight History', data.weights || [], 'kg', 'weight', 2)
+  drawHistoryTable('Height History', data.heights || [], 'cm', 'length', 1)
+
+  addFooter(doc, doc.internal.getNumberOfPages())
+  doc.save(`growth-report-${childName.toLowerCase().replace(/\s+/g, '-')}-${today()}.pdf`)
+}
+
+export function generateWeeklyReport(data, child) {
+  const childName = typeof child === 'string' ? child : (child?.name || 'Child')
+  const childObj = typeof child === 'string' ? null : child
   const doc = new jsPDF()
   const endDate = today()
   const startDate = daysAgo(6)
   addHeader(doc, 'Weekly Report', `${childName} - ${formatDate(startDate)} to ${formatDate(endDate)}`)
 
   let y = 42
+  function ensureSpace(needed) {
+    if (y + needed > 280) {
+      addFooter(doc, doc.internal.getNumberOfPages())
+      doc.addPage()
+      y = 20
+    }
+  }
 
-  // Med compliance
+  // ===== Overall medication compliance + per-med breakdown =====
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(...COLORS.text)
@@ -279,13 +710,20 @@ export function generateWeeklyReport(data, childName) {
   y += 10
 
   let totalDoses = 0, givenDoses = 0
+  // Per-med tally: { medId: { name, times: [], expected, given } }
+  const perMed = {}
   for (let i = 6; i >= 0; i--) {
     const d = daysAgo(i)
     data.medications.forEach(med => {
+      if (!perMed[med.id]) perMed[med.id] = { name: med.name, expected: 0, given: 0 }
       med.times.forEach(t => {
         totalDoses++
+        perMed[med.id].expected++
         const key = med.id + '_' + t
-        if (data.medLog[d] && data.medLog[d][key]) givenDoses++
+        if (data.medLog[d] && data.medLog[d][key]) {
+          givenDoses++
+          perMed[med.id].given++
+        }
       })
     })
   }
@@ -297,57 +735,163 @@ export function generateWeeklyReport(data, childName) {
   doc.setFontSize(9)
   doc.setTextColor(...COLORS.muted)
   doc.text(`${givenDoses} of ${totalDoses} doses given`, 42, y)
-  y += 14
+  y += 12
 
-  // Daily feed totals
+  // Per-medication breakdown
+  const medBreakdown = Object.values(perMed).filter(m => m.expected > 0)
+  if (medBreakdown.length > 0) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.muted)
+    ensureSpace(10)
+    doc.setFillColor(...COLORS.bg)
+    doc.rect(14, y, 182, 7, 'F')
+    doc.text('MEDICATION', 16, y + 5)
+    doc.text('GIVEN', 130, y + 5)
+    doc.text('%', 175, y + 5, { align: 'right' })
+    y += 10
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    medBreakdown.sort((a, b) => a.given / a.expected - b.given / b.expected).forEach(m => {
+      ensureSpace(7)
+      const pct = Math.round((m.given / m.expected) * 100)
+      doc.setTextColor(...COLORS.text)
+      doc.text(m.name, 16, y)
+      doc.text(`${m.given}/${m.expected}`, 130, y)
+      doc.setTextColor(...(pct >= 90 ? COLORS.green : pct >= 70 ? COLORS.primary : COLORS.red))
+      doc.text(`${pct}%`, 175, y, { align: 'right' })
+      y += 6
+      doc.setDrawColor(...COLORS.border)
+      doc.line(14, y - 2, 196, y - 2)
+    })
+    y += 6
+  }
+
+  // ===== Daily intake (bolus + continuous) =====
+  ensureSpace(60)
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(...COLORS.text)
-  doc.text('Daily Feed Totals', 14, y)
+  doc.text('Daily Intake', 14, y)
   y += 8
+
+  doc.setFillColor(...COLORS.bg)
+  doc.rect(14, y, 182, 7, 'F')
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...COLORS.muted)
+  doc.text('DATE', 16, y + 5)
+  doc.text('BOLUS', 60, y + 5)
+  doc.text('CONTINUOUS', 100, y + 5)
+  doc.text('TOTAL', 150, y + 5)
+  doc.text('ON PUMP', 175, y + 5)
+  y += 10
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
+  let weekHasContinuous = false
+  let weekHasEstimate = false
   for (let i = 6; i >= 0; i--) {
     const d = daysAgo(i)
-    const dayFeeds = data.feeds.filter(f => f.date === d)
-    const totalMl = dayFeeds.reduce((s, f) => s + f.amount, 0)
+    const intake = dailyIntakeMl(data, d)
+    const cont = dailyContinuousTotals(data.continuousFeedSessions, data.continuousFeedPauses, d)
+    if (intake.continuous > 0) weekHasContinuous = true
+    if (cont.hasEstimate) weekHasEstimate = true
+    ensureSpace(6)
     doc.setTextColor(...COLORS.text)
-    doc.text(`${formatDate(d)}:`, 16, y)
-    doc.text(`${totalMl}mL (${dayFeeds.length} feeds)`, 60, y)
+    doc.text(formatDate(d), 16, y)
+    doc.text(`${intake.bolus}mL`, 60, y)
+    doc.text(intake.continuous > 0 ? `${cont.hasEstimate ? '~' : ''}${intake.continuous}mL` : '—', 100, y)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`${intake.total}mL`, 150, y)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...COLORS.muted)
+    doc.text(cont.onPumpMin > 0 ? formatHM(cont.onPumpMin) : '—', 175, y)
     y += 6
   }
-  y += 8
+  if (weekHasEstimate) {
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(...COLORS.muted)
+    doc.text('~ continuous-feed mL estimated from rate × on-pump time when no actual reading entered', 14, y)
+    y += 6
+  }
+  if (!weekHasContinuous) {
+    // Drop the "continuous" + "on pump" columns mentally — but the table is rendered;
+    // a small note keeps the report self-explanatory for clinicians.
+  }
+  y += 6
 
-  // Weight trend
+  // ===== Weight trend =====
+  ensureSpace(40)
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(...COLORS.text)
   doc.text('Weight Trend', 14, y)
   y += 8
 
-  const weekWeights = data.weights.filter(w => w.date >= startDate && w.date <= endDate)
+  const weekWeights = (data.weights || []).filter(w => w.date >= startDate && w.date <= endDate)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   if (weekWeights.length === 0) {
     doc.setTextColor(...COLORS.muted)
     doc.text('No weights recorded this week', 14, y)
+    y += 8
   } else {
     weekWeights.forEach(w => {
+      ensureSpace(6)
       doc.setTextColor(...COLORS.text)
-      doc.text(`${formatDate(w.date)}: ${w.value.toFixed(3)}kg`, 16, y)
+      doc.text(`${formatDate(w.date)}: ${Number(w.value).toFixed(2)}kg`, 16, y)
+      const pl = percentileLabel(childObj, 'weight', w.date, w.value)
+      if (pl) {
+        doc.setTextColor(...COLORS.primary)
+        doc.text(`(${pl} percentile)`, 90, y)
+      }
       y += 6
     })
     if (weekWeights.length >= 2) {
-      const first = weekWeights[0].value
-      const last = weekWeights[weekWeights.length - 1].value
+      const first = Number(weekWeights[0].value)
+      const last = Number(weekWeights[weekWeights.length - 1].value)
       const change = last - first
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(...(change >= 0 ? COLORS.green : COLORS.red))
-      doc.text(`Change: ${change >= 0 ? '+' : ''}${change.toFixed(3)}kg`, 14, y + 2)
+      doc.text(`Change: ${change >= 0 ? '+' : ''}${change.toFixed(2)}kg`, 14, y + 2)
+      y += 8
+    }
+  }
+  y += 4
+
+  // ===== Height trend =====
+  const weekHeights = (data.heights || []).filter(h => h.date >= startDate && h.date <= endDate)
+  if (weekHeights.length > 0) {
+    ensureSpace(20)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...COLORS.text)
+    doc.text('Height Trend', 14, y)
+    y += 8
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    weekHeights.forEach(h => {
+      ensureSpace(6)
+      doc.setTextColor(...COLORS.text)
+      doc.text(`${formatDate(h.date)}: ${Number(h.value).toFixed(1)}cm`, 16, y)
+      const pl = percentileLabel(childObj, 'length', h.date, h.value)
+      if (pl) {
+        doc.setTextColor(...COLORS.primary)
+        doc.text(`(${pl} percentile)`, 90, y)
+      }
+      y += 6
+    })
+    if (weekHeights.length >= 2) {
+      const change = Number(weekHeights[weekHeights.length - 1].value) - Number(weekHeights[0].value)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(...(change >= 0 ? COLORS.green : COLORS.red))
+      doc.text(`Change: ${change >= 0 ? '+' : ''}${change.toFixed(1)}cm`, 14, y + 2)
+      y += 8
     }
   }
 
-  addFooter(doc, 1)
+  addFooter(doc, doc.internal.getNumberOfPages())
   doc.save(`weekly-report-${childName.toLowerCase().replace(/\s+/g, '-')}-${endDate}.pdf`)
 }
