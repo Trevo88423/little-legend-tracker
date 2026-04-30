@@ -57,10 +57,10 @@ When ready, output a JSON object with this exact format. Only include sections t
   "feed_schedule": {
     "times": ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
     "target_amount": 90,
-    "feed_type": "bottle|tube|breast"
+    "feed_type": "bottle|breast|ng_tube|nj_tube|g_tube|j_tube"
   },
   "feed_plan": {
-    "type": "bottle|tube|breast",
+    "type": "bottle|breast|ng_tube|nj_tube|g_tube|j_tube",
     "amount": "Amount per feed as written (e.g. 120mL, 90-120mL)",
     "frequency": "How often",
     "instructions": "Special feeding instructions"
@@ -82,7 +82,7 @@ Rules:
 - Times must be in 24-hour HH:MM format
 - Category must be one of: heart, diuretic, stomach, blood, other
 - Tracker type must be one of: number, counter, note
-- Feed type must be one of: bottle, tube, breast
+- Feed type must be one of: bottle, breast, ng_tube (nasogastric), nj_tube (nasojejunal), g_tube (gastrostomy / PEG), j_tube (jejunostomy). Use the most specific tube type the source mentions; if it just says "tube" or "NG", use ng_tube.
 - feed_schedule.times must be an array of HH:MM strings for each scheduled feed
 - feed_schedule.target_amount is the target mL per feed as a number
 - If the source mentions a feeding schedule with specific times, use feed_schedule. If it only describes a general plan, use feed_plan

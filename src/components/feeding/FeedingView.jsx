@@ -195,8 +195,11 @@ export default function FeedingView() {
             <label>Type</label>
             <select value={feedType} onChange={e => setFeedType(e.target.value)}>
               <option value="bottle">Bottle</option>
-              <option value="tube">NG Tube</option>
               <option value="breast">Breast</option>
+              <option value="ng_tube">NG Tube</option>
+              <option value="nj_tube">NJ Tube</option>
+              <option value="g_tube">G Tube</option>
+              <option value="j_tube">J Tube</option>
             </select>
           </div>
           <div className="t-form-row">
