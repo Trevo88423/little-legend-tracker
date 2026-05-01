@@ -21,7 +21,6 @@ export default function GrowthView() {
             style={{
               flex: 1,
               padding: '10px 12px',
-              border: 'none',
               borderRadius: 8,
               cursor: 'pointer',
               fontSize: '0.88rem',
