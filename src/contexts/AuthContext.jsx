@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import * as Sentry from '@sentry/react'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
@@ -72,6 +73,8 @@ export function AuthProvider({ children }) {
       if (userChanged) {
         setTimeout(() => {
           if (cancelled) return
+          // Tag Sentry events with the user UUID only — never email or name (medical privacy).
+          Sentry.setUser(newUserId ? { id: newUserId } : null)
           fetchOnboardingStatus(newUserId).then(status => {
             if (cancelled) return
             // Race guard: only apply if user is still the same

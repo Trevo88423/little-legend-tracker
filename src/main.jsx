@@ -1,5 +1,8 @@
+import './instrument'
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import * as Sentry from '@sentry/react'
 import App from './App.jsx'
 
 // Register service worker + auto-reload on update.
@@ -26,8 +29,15 @@ if ('serviceWorker' in navigator) {
   })
 }
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root'), {
+  // React 19 hooks — catch errors that ErrorBoundary alone misses (concurrent mode, etc).
+  onUncaughtError: Sentry.reactErrorHandler(),
+  onCaughtError: Sentry.reactErrorHandler(),
+  onRecoverableError: Sentry.reactErrorHandler(),
+}).render(
   <StrictMode>
-    <App />
+    <Sentry.ErrorBoundary fallback={<div style={{ padding: 24 }}>Something went wrong. Please refresh the page.</div>}>
+      <App />
+    </Sentry.ErrorBoundary>
   </StrictMode>,
 )
